@@ -1,0 +1,31 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Prometheus Reproduce CLI (Debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/app/main.py",
+            "args": [
+                "--dataset_name",
+                "princeton-nlp/SWE-bench_Lite", // <--- 在这里填入你要调试的数据集名称
+                "--file",
+                "debug_predictions.json"
+                // 如果需要，可以继续添加其他参数，例如:
+                // "--github_token",
+                // "your_github_token"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "DEBUG": "1",
+                "LOG_LEVEL": "DEBUG"
+            }
+        }
+    ]
+}
