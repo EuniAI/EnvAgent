@@ -2,20 +2,23 @@
 
 from collections import deque
 from pathlib import Path
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Dict, List
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.graph.graph_types import (
     ASTNode,
+    DeclareNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,
     TextNode,
 )
 from app.parser import tree_sitter_parser
+from app.utils.logger_manager import get_thread_logger
 
+logger, file_handler = get_thread_logger(__name__)
 
 class FileGraphBuilder:
     """A class for building knowledge graphs from individual files.
@@ -29,7 +32,7 @@ class FileGraphBuilder:
     edges (KnowledgeGraphEdge) with different relationship types (KnowledgeGraphEdgeType).
     """
 
-    def __init__(self, max_ast_depth: int, chunk_size: int, chunk_overlap: int):
+    def __init__(self, astnode_args: dict, chunk_size: int, chunk_overlap: int):
         """Initialize the FileGraphBuilder.
 
         Args:
@@ -38,9 +41,31 @@ class FileGraphBuilder:
           chunk_size: The chunk size for text files.
           chunk_overlap: The overlap size for text files.
         """
-        self.max_ast_depth = max_ast_depth
-        self.chunk_size = chunk_size
+        self.astnode_args = astnode_args
+        self.max_ast_depth = astnode_args.max_ast_depth
+        self.save_ast_depth = astnode_args.save_ast_depth
+        self.save_declare_depth = astnode_args.save_declare_depth
+        self.chunk_size = chunk_size    
         self.chunk_overlap = chunk_overlap
+        
+        # Define the node types to track for import statements and package/module declarations
+        self.import_node_types = {
+            'python': ['import_statement', 'import_from_statement', 'aliased_import'],
+            'java': ['import_declaration', 'package_declaration', 'module_declaration', 'import_statement'],
+            'javascript': ['import_statement'],
+            'typescript': ['import_statement'],
+            'rust': ['use_declaration', 'extern_crate_declaration', 'mod_item'],
+            'go': ['import_declaration', 'package_clause'],
+            'php': ['use_declaration'],
+            'bash': ['source'],
+            'c': ['preproc_include', 'preproc_def'],
+            'c++': ['preproc_include', 'preproc_def', 'import_statement'],
+            'general': ['import_from_statement', 'package_declaration', 'import_declaration', 'aliased_import', 'import_statement'],
+        }
+        # Collect all import and package/module node types
+        self.all_import_types = set()
+        for types in self.import_node_types.values():
+            self.all_import_types.update(types)
 
     def support_code_file(self, file: Path) -> bool:
         return tree_sitter_parser.supports_file(file)
@@ -54,7 +79,7 @@ class FileGraphBuilder:
 
     def build_file_graph(
         self, parent_node: KnowledgeGraphNode, file: Path, next_node_id: int
-    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
+    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge], Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
         """Build knowledge graph for a single file.
 
         Args:
@@ -64,9 +89,12 @@ class FileGraphBuilder:
           next_node_id: The next available node id.
 
         Returns:
-          A tuple of (next_node_id, kg_nodes, kg_edges), where next_node_id is the
-          new next_node_id, kg_nodes is a list of all nodes created for the file,
-          and kg_edges is a list of all edges created for this file.
+          A tuple of (next_node_id, kg_nodes, kg_edges, selected_declare_nodes, selected_declare_edges), where:
+            - next_node_id is the new next_node_id
+            - kg_nodes is a list of all nodes created for the file
+            - kg_edges is a list of all edges created for this file
+            - declare_nodes is a list of declaration nodes (AST nodes for code files, empty for text files)
+            - declare_edges is a list of edges for declaration nodes
         """
         # In this case, it is a file that tree sitter can parse (source code)
         if self.support_code_file(file):
@@ -75,9 +103,23 @@ class FileGraphBuilder:
         else:
             return self._text_file_graph(parent_node, file, next_node_id)
 
+    def _save_file_graph(self, depth: int, nodes_list: Sequence[KnowledgeGraphNode], edges_list: Sequence[KnowledgeGraphEdge],
+                         edge_node_parent: KnowledgeGraphNode, edge_node_child: KnowledgeGraphNode, edge_type: KnowledgeGraphEdgeType):
+        if isinstance(edge_node_child.node, ASTNode) and depth in self.save_ast_depth:
+            nodes_list.append(edge_node_child)
+            edges_list.append(
+                KnowledgeGraphEdge(edge_node_parent, edge_node_child, edge_type)
+            )
+        elif isinstance(edge_node_child.node, DeclareNode) and depth in self.save_declare_depth:
+            nodes_list.append(edge_node_child)
+            edges_list.append(
+                KnowledgeGraphEdge(edge_node_parent, edge_node_child, edge_type)
+            )
+        return nodes_list, edges_list
+    
     def _tree_sitter_file_graph(
         self, parent_node: KnowledgeGraphNode, file: Path, next_node_id: int
-    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
+    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge], Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
         """
         Parse a file into a tree-sitter based abstract syntax tree (AST) and build a corresponding knowledge graph.
 
@@ -128,17 +170,21 @@ class FileGraphBuilder:
             start_line=tree.root_node.start_point[0] + 1,
             end_line=tree.root_node.end_point[0] + 1,
             text=tree.root_node.text.decode("utf-8"),
+            depth=1,
         )
         kg_ast_root_node = KnowledgeGraphNode(next_node_id, ast_root_node)
         next_node_id += 1
-        tree_sitter_nodes.append(kg_ast_root_node)
-
-        # Add the HAS_AST edge connecting the file node to its AST root node
-        tree_sitter_edges.append(
-            KnowledgeGraphEdge(parent_node, kg_ast_root_node, KnowledgeGraphEdgeType.has_ast)
-        )
+        
+        # save the "ast_root_node" and "file_has_ast_edge" if 1 in save_ast_depth
+        tree_sitter_nodes, tree_sitter_edges = self._save_file_graph(1, tree_sitter_nodes, tree_sitter_edges, 
+                                                                    edge_node_parent=parent_node, 
+                                                                    edge_node_child=kg_ast_root_node, 
+                                                                    edge_type=KnowledgeGraphEdgeType.has_ast)
 
         # Use an explicit stack for depth-first traversal of the AST
+        """
+        astnode depth 为 1
+        """
         node_stack = deque()
         node_stack.append(
             (tree.root_node, kg_ast_root_node, 1)
@@ -158,38 +204,66 @@ class FileGraphBuilder:
                     start_line=tree_sitter_child_node.start_point[0] + 1,
                     end_line=tree_sitter_child_node.end_point[0] + 1,
                     text=tree_sitter_child_node.text.decode("utf-8"),
+                    depth=depth + 1,
                 )
                 kg_child_ast_node = KnowledgeGraphNode(next_node_id, child_ast_node)
                 next_node_id += 1
+                # save the "kg_child_ast_node" and "file_has_ast_edge" if depth in save_ast_depth
+                tree_sitter_nodes, tree_sitter_edges = self._save_file_graph(depth+1, tree_sitter_nodes, tree_sitter_edges,
+                                                                             edge_node_parent=parent_node, 
+                                                                             edge_node_child=kg_child_ast_node, 
+                                                                             edge_type=KnowledgeGraphEdgeType.has_ast)
+                # tree_sitter_nodes.append(kg_child_ast_node)
+                # # Add a PARENT_OF edge from the parent to this child
+                # tree_sitter_edges.append(
+                #     KnowledgeGraphEdge(kg_node, kg_child_ast_node, KnowledgeGraphEdgeType.parent_of)
+                # )
 
-                tree_sitter_nodes.append(kg_child_ast_node)
-                # Add a PARENT_OF edge from the parent to this child
-                tree_sitter_edges.append(
-                    KnowledgeGraphEdge(kg_node, kg_child_ast_node, KnowledgeGraphEdgeType.parent_of)
-                )
+                
+
+                # Collect nodes of specific types for import statements and package/module declarations.
+                if tree_sitter_child_node.type in self.all_import_types:
+                    # save the "kg_child_ast_node" and "file_has_declare_edge" if depth in save_ast_depth
+                    child_declare_node = DeclareNode(
+                        type=tree_sitter_child_node.type,
+                        start_line=tree_sitter_child_node.start_point[0] + 1,
+                        end_line=tree_sitter_child_node.end_point[0] + 1,
+                        text=tree_sitter_child_node.text.decode("utf-8"),
+                        depth=depth + 1,
+                    )
+                    kg_child_declare_node = KnowledgeGraphNode(next_node_id, child_declare_node)
+                    next_node_id += 1
+                    tree_sitter_nodes, tree_sitter_edges = self._save_file_graph(depth + 1, tree_sitter_nodes, tree_sitter_edges,
+                                                                             edge_node_parent=parent_node, 
+                                                                             edge_node_child=kg_child_declare_node, 
+                                                                             edge_type=KnowledgeGraphEdgeType.has_declare)
+                    # tree_sitter_declare_nodes.append(kg_child_ast_node)
+                    # tree_sitter_declare_edges.append(
+                    #     KnowledgeGraphEdge(kg_node, kg_child_ast_node, KnowledgeGraphEdgeType.parent_of)
+                    # )
+                    # logger.warning(f"Import node: {kg_child_ast_node}")
 
                 # Add the child node to the stack to continue traversal
                 node_stack.append((tree_sitter_child_node, kg_child_ast_node, depth + 1))
-
         # Return the updated next_node_id, all nodes, and all edges for this file's AST subgraph
         return next_node_id, tree_sitter_nodes, tree_sitter_edges
 
     def _text_file_graph(
         self, parent_node: KnowledgeGraphNode, file: Path, next_node_id: int
-    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
+    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge], Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap, length_function=len
         )
         text = file.open(encoding="utf-8").read()
         documents = text_splitter.create_documents([text])
-        return self._documents_to_file_graph(documents, parent_node, next_node_id)
+        return self._documents_to_file_graph(documents, parent_node, next_node_id)  
 
     def _documents_to_file_graph(
         self,
         documents: Sequence[Document],
         parent_node: KnowledgeGraphNode,
         next_node_id: int,
-    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
+    ) -> Tuple[int, Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge], Sequence[KnowledgeGraphNode], Sequence[KnowledgeGraphEdge]]:
         """Convert the parsed langchain documents to a knowledge graph.
 
         The parsed document will form a chain of nodes, where all nodes are connected
@@ -203,9 +277,12 @@ class FileGraphBuilder:
           next_node_id: The next available node id.
 
         Returns:
-          A tuple of (next_node_id, kg_nodes, kg_edges), where next_node_id is the
-          new next_node_id, kg_nodes is a list of all nodes created for the file,
-          and kg_edges is a list of all edges created for this file.
+          A tuple of (next_node_id, kg_nodes, kg_edges, selected_declare_nodes, selected_declare_edges), where:
+            - next_node_id is the new next_node_id
+            - kg_nodes is a list of all nodes created for the file
+            - kg_edges is a list of all edges created for this file
+            - selected_declare_nodes is an empty list for text files (no AST nodes)
+            - selected_declare_edges is an empty list for text files (no AST edges)
         """
         document_nodes = []
         document_edges = []

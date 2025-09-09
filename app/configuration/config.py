@@ -1,7 +1,15 @@
 from typing import Literal
-
+from pydantic import Field, field_validator, BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+class ASTNodeConfig(BaseModel):
+    max_ast_depth: int = Field(gt=0, description="Maximum AST depth to traverse")
+    save_ast_depth: list[int] | None = Field(
+        default=None, description="AST depths to save (None means save all)"
+    )
+    save_declare_depth: list[int] | None = Field(
+        default=None, description="Declare depths to save (None means save all)"
+    )
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -18,7 +26,7 @@ class Settings(BaseSettings):
 
     # Knowledge Graph
     WORKING_DIRECTORY: str
-    KNOWLEDGE_GRAPH_MAX_AST_DEPTH: int
+    KNOWLEDGE_GRAPH_ASTNODE_ARGS: ASTNodeConfig
     KNOWLEDGE_GRAPH_CHUNK_SIZE: int
     KNOWLEDGE_GRAPH_CHUNK_OVERLAP: int
     MAX_TOKEN_PER_NEO4J_RESULT: int

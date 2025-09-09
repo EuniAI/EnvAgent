@@ -1,10 +1,8 @@
 import json
-import logging
 import threading
 import traceback
 from datetime import datetime
-from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Dict, List
 
 import click
 from datasets import load_dataset
@@ -18,13 +16,78 @@ from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.services.llm_service import LLMService
 from app.services.neo4j_service import Neo4jService
 from app.services.repository_service import RepositoryService
+from app.utils.logger_manager import get_thread_logger
 
-SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
+# SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
 
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
-LOG_DIR = Path(settings.WORKING_DIRECTORY) / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+logger, file_handler = get_thread_logger(__name__)
+
+
+def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
+    """
+    解析 all_projects.txt 文件
+    文件格式：项目名 仓库URL 编程语言 镜像名:标签
+    Args:
+        file_path: all_projects.txt 文件的路径
+    Returns:
+        包含项目信息的字典列表，每个字典包含：
+        - name: 项目名称
+        - repo_url: 仓库URL
+        - language: 编程语言
+        - image: 镜像名称
+        - tag: 镜像标签
+    """
+    projects = []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # 按空格分割，但URL可能包含空格，需要特殊处理
+                parts = line.split()
+                if len(parts) < 4:
+                    logger.warning(f"第{line_num}行格式不正确，跳过: {line}")
+                    continue
+                
+                # 前三个部分分别是：项目名、仓库URL、编程语言
+                project_name = parts[0]
+                language = parts[-2]  # 倒数第二个是编程语言
+                image_full = parts[-1]  # 最后一个是镜像名:标签
+                
+                # 处理镜像名和标签
+                if ':' in image_full:
+                    image_name, tag = image_full.rsplit(':', 1)
+                else:
+                    image_name = image_full
+                    tag = 'latest'
+                
+                # 仓库URL是中间部分，需要重新组合（因为URL可能包含空格）
+                repo_url_parts = parts[1:-2]
+                repo_url = ' '.join(repo_url_parts)
+                
+                project_info = {
+                    'name': project_name,
+                    'repo_url': repo_url,
+                    'language': language,
+                    'image': image_name,
+                    'tag': tag
+                }
+                projects.append(project_info)
+                
+    except FileNotFoundError:
+        logger.error(f"找不到文件 {file_path}")
+        return []
+    except Exception as e:
+        logger.error(f"解析文件时发生错误: {e}")
+        return []
+    
+    return projects
+
 
 # Initialize services with configuration settings
 neo4j_service = Neo4jService(
@@ -36,7 +99,7 @@ neo4j_service = Neo4jService(
 knowledge_graph_service = KnowledgeGraphService(
     neo4j_service,
     settings.NEO4J_BATCH_SIZE,
-    settings.KNOWLEDGE_GRAPH_MAX_AST_DEPTH,
+    settings.KNOWLEDGE_GRAPH_ASTNODE_ARGS,
     settings.KNOWLEDGE_GRAPH_CHUNK_SIZE,
     settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
 )
@@ -57,60 +120,51 @@ llm_service = LLMService(
 )
 
 
-def reproduce_bug(
-    issue_title: str,
-    issue_body: str,
-    issue_comments: Sequence[Mapping[str, str]],
+def reproduce_test(
     github_url: str,
     github_token: str,
-    commit_id: str = None,
-    dockerfile_content: str = None,
+    # commit_id: str = None,
+    # dockerfile_content: str = None,
     image_name: str = None,
-    build_commands: Sequence[str] = None,
-    test_commands: Sequence[str] = None,
+    # build_commands: Sequence[str] = None,
+    # test_commands: Sequence[str] = None,
     workdir: str = None,
 ) -> tuple[bool, None, None, None] | tuple[bool, str, str, str]:
-    # Set up a dedicated logger for this thread
-    logger = logging.getLogger(f"thread-{threading.get_ident()}.prometheus")
-    logger.setLevel(getattr(logging, settings.LOGGING_LEVEL))
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = LOG_DIR / f"{timestamp}_{threading.get_ident()}.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
 
-    if dockerfile_content or image_name:
-        if workdir is None:
-            raise Exception("workdir must be provided for user defined environment")
-    # Clone the repository
-    print("Starting cloning the repository...")
-    repo_path = repository_service.clone_github_repo(github_token, github_url, commit_id)
-    print(f"Repository cloned to: {repo_path}")
-
-    # Build and save the knowledge graph
-    root_node_id = knowledge_graph_service.build_and_save_knowledge_graph(repo_path)
-    print(f"Knowledge graph created with root node ID: {root_node_id}")
+    # if dockerfile_content or image_name:
+    if workdir is None:
+        raise Exception("workdir must be provided for user defined environment")
+    # Get or create repository (repository-based logic)
+    logger.info("Getting or creating repository...")
+    repo_path, root_node_id, is_new_repository = repository_service.get_or_create_repository(
+        github_token, github_url
+    )
+    
+    if is_new_repository:
+        logger.info(f"New repository created at: {repo_path}")
+    else:
+        logger.info(f"Using existing repository at: {repo_path}")
+    
+    logger.info(f"Knowledge graph root node ID: {root_node_id}")
     knowledge_graph = knowledge_graph_service.get_knowledge_graph(
         root_node_id,
-        settings.KNOWLEDGE_GRAPH_MAX_AST_DEPTH,
         settings.KNOWLEDGE_GRAPH_CHUNK_SIZE,
         settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
     )
     git_repo = repository_service.get_repository(repo_path)
 
-    # Construct the working directory
-    if dockerfile_content or image_name:
-        container = UserDefinedContainer(
-            repo_path,
-            workdir,
-            build_commands,
-            test_commands,
-            dockerfile_content,
-            image_name,
-        )
-    else:
-        container = GeneralContainer(repo_path)
+    # # Construct the working directory
+    # if dockerfile_content or image_name:
+    #     container = UserDefinedContainer(
+    #         repo_path,
+    #         workdir,
+    #         build_commands,
+    #         test_commands,
+    #         dockerfile_content,
+    #         image_name,
+    #     )
+    # else:
+    container = GeneralContainer(repo_path)
     # Start the container
     container.build_docker_image()
     container.start_container()
@@ -127,13 +181,13 @@ def reproduce_bug(
     )
 
     # Invoke the bug reproduction subgraph
-    print("Starting bug reproduction...")
+    logger.info("Starting bug reproduction...")
     try:
         output_states = bug_reproduction_subgraph.invoke(
             issue_title=issue_title, issue_body=issue_body, issue_comments=issue_comments
         )
     except Exception as e:
-        logger.error(f"Error in answer_issue: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Error in bug reproduction: {str(e)}\n{traceback.format_exc()}")
         return False, None, None, None
     finally:
         # Clean up resources
@@ -141,15 +195,18 @@ def reproduce_bug(
         git_repo.reset_repository()
         logger.removeHandler(file_handler)
         file_handler.close()
-    # Clear the knowledge graph from Neo4j after use
-    knowledge_graph_service.clear_kg(knowledge_graph.root_node_id)
-    # Clear the repository from the repository service
-    repo_path.rmdir()
+    # Clear the knowledge graph and repository after use
+    # Note: Only clean up if this was a new repository to avoid removing shared resources
+    if is_new_repository:
+        repository_service.clean_repository(github_url)
+        logger.info("Cleaned up new repository resources")
+    else:
+        logger.info("Keeping existing repository resources for reuse")
     
-    print(f"reproduced_bug: {output_states['reproduced_bug']}")
-    print(f"reproduced_bug_file: {output_states['reproduced_bug_file']}")
-    print(f"reproduced_bug_commands: {output_states['reproduced_bug_commands']}")
-    print(f"reproduced_bug_patch: {output_states['reproduced_bug_patch']}")
+    logger.info(f"reproduced_bug: {output_states['reproduced_bug']}")
+    logger.info(f"reproduced_bug_file: {output_states['reproduced_bug_file']}")
+    logger.info(f"reproduced_bug_commands: {output_states['reproduced_bug_commands']}")
+    logger.info(f"reproduced_bug_patch: {output_states['reproduced_bug_patch']}")
     return (
         output_states["reproduced_bug"],
         output_states["reproduced_bug_file"],
@@ -160,10 +217,9 @@ def reproduce_bug(
 
 @click.command()
 @click.option(
-    "--dataset_name",
+    "--dataset_file_path",
     "-d",
     required=True,
-    help="Name of the SWE bench dataset generate patches",
 )
 @click.option(
     "--github_token",
@@ -178,43 +234,50 @@ def reproduce_bug(
     default=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
 )
 def main(
-    dataset_name: str,
+    dataset_file_path: str,
     github_token: str,
     file: str,
 ):
-    dataset = load_dataset(dataset_name)
-    filtered_dataset = dataset["test"]
-    print(f"Dataset loaded: {dataset_name}")
+    
+    # dataset = load_dataset(dataset_name)
+    # filtered_dataset = dataset["test"]
+    # print(f"Dataset loaded: {dataset_name}")
+    
+    # 解析 all_projects.txt 文件、
+    projects = parse_all_projects_file(dataset_file_path)
+    logger.info(f"成功解析 {len(projects)} 个项目")
+
+    # 初始化预测结果字典
     predictions = {}
 
-    for github_issue in tqdm(filtered_dataset):
+    for project in tqdm(projects):
+        # 记录当前处理的项目信息
+        logger.info(f"开始处理项目: {project['name']} ({project['language']})")
+        
         # Get Issue information
-        repo_prefix = github_issue["repo"].split("/")[0]
-        instance_id = github_issue["instance_id"].split("__")[-1]
-        image_name = SWEBENCH_IMAGE_FORMAT.format(repo_prefix=repo_prefix, instance_id=instance_id)
-        github_url = GITHUB_HTTPS_URL.format(repo_name=github_issue["repo"])
-        commit_id = github_issue["base_commit"]
-        problem_statement_lines = github_issue["problem_statement"].splitlines()
-        issue_title = problem_statement_lines[0]
-        issue_body = "\n".join(problem_statement_lines[1:])
+        # repo_prefix = github_issue["repo"].split("/")[0]
+        # instance_id = github_issue["instance_id"].split("__")[-1]
+        # image_name = SWEBENCH_IMAGE_FORMAT.format(repo_prefix=repo_prefix, instance_id=instance_id)
+        # github_url = GITHUB_HTTPS_URL.format(repo_name=github_issue["repo"])
+        # commit_id = github_issue["base_commit"]
+        # problem_statement_lines = github_issue["problem_statement"].splitlines()
+        # issue_title = problem_statement_lines[0]
+        # issue_body = "\n".join(problem_statement_lines[1:])
+
+        github_url = project["repo_url"]
+        language = project["language"]
+        image_name = project["image"]
 
         # Reproduce the bug
         (reproduced_bug, reproduced_bug_file, reproduced_bug_commands, reproduced_bug_patch) = (
-            reproduce_bug(
-                issue_title,
-                issue_body,
-                [],
+            reproduce_test(
                 github_url,
                 github_token,
-                commit_id,
-                None,
                 image_name,
-                None,
-                None,
                 "/testbed",
             )
         )
-        predictions[github_issue["instance_id"]] = {
+        predictions[github_ds["instance_id"]] = {
             "reproduced_bug": reproduced_bug,
             "reproduced_bug_file": str(reproduced_bug_file),
             "reproduced_bug_commands": reproduced_bug_commands,

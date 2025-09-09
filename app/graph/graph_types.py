@@ -33,7 +33,25 @@ class ASTNode:
     start_line: int
     end_line: int
     text: str
+    depth: int
 
+@dataclasses.dataclass(frozen=True)
+class DeclareNode:
+    """A node representing a declaration node.
+
+    Attributes:
+      type: The declaration node type.
+      start_line: The starting line number. 0-indexed and inclusive.
+      end_line: The ending line number.  0-indexed and inclusive.
+      text: The source code corresponding to the node.
+      depth: The depth of the node in the AST.
+    """
+
+    type: str
+    start_line: int
+    end_line: int
+    text: str
+    depth: int
 
 @dataclasses.dataclass(frozen=True)
 class TextNode:
@@ -58,9 +76,9 @@ class KnowledgeGraphNode:
     """
 
     node_id: int
-    node: Union[FileNode, ASTNode, TextNode]
+    node: Union[FileNode, ASTNode, TextNode, DeclareNode]
 
-    def to_neo4j_node(self) -> Union["Neo4jFileNode", "Neo4jASTNode", "Neo4jTextNode"]:
+    def to_neo4j_node(self) -> Union["Neo4jFileNode", "Neo4jASTNode", "Neo4jTextNode", "Neo4jDeclareNode"]:
         """Convert the KnowledgeGraphNode into a Neo4j node format."""
         match self.node:
             case FileNode():
@@ -76,12 +94,22 @@ class KnowledgeGraphNode:
                     start_line=self.node.start_line,
                     end_line=self.node.end_line,
                     text=self.node.text,
+                    depth=self.node.depth,
                 )
             case TextNode():
                 return Neo4jTextNode(
                     node_id=self.node_id,
                     text=self.node.text,
                     metadata=self.node.metadata,
+                )
+            case DeclareNode():
+                return Neo4jDeclareNode(
+                    node_id=self.node_id,
+                    type=self.node.type,
+                    start_line=self.node.start_line,
+                    end_line=self.node.end_line,
+                    text=self.node.text,
+                    depth=self.node.depth,
                 )
             case _:
                 raise ValueError("Unknown KnowledgeGraphNode.node type")
@@ -105,6 +133,20 @@ class KnowledgeGraphNode:
                 start_line=node["start_line"],
                 end_line=node["end_line"],
                 text=node["text"],
+                depth=node["depth"],
+            ),
+        )
+    
+    @classmethod
+    def from_neo4j_declare_node(cls, node: "Neo4jDeclareNode") -> "KnowledgeGraphNode":
+        return cls(
+            node_id=node["node_id"],
+            node=DeclareNode(
+                type=node["type"],
+                start_line=node["start_line"],
+                end_line=node["end_line"],
+                text=node["text"],
+                depth=node["depth"],
             ),
         )
 
@@ -124,6 +166,7 @@ class KnowledgeGraphEdgeType(enum.StrEnum):
     has_ast = "HAS_AST"  # FileNode -> ASTNode
     has_text = "HAS_TEXT"  # FileNode -> TextNode
     next_chunk = "NEXT_CHUNK"  # TextNode -> TextNode
+    has_declare = "HAS_DECLARE"  # FileNode -> DeclareNode
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,6 +191,7 @@ class KnowledgeGraphEdge:
         "Neo4jParentOfEdge",
         "Neo4jHasTextEdge",
         "Neo4jNextChunkEdge",
+        "Neo4jHasDeclareEdge",
     ]:
         """Convert the KnowledgeGraphEdge into a Neo4j edge format."""
         match self.type:
@@ -168,6 +212,11 @@ class KnowledgeGraphEdge:
                 )
             case KnowledgeGraphEdgeType.has_text:
                 return Neo4jHasTextEdge(
+                    source=self.source.to_neo4j_node(),
+                    target=self.target.to_neo4j_node(),
+                )
+            case KnowledgeGraphEdgeType.has_declare:
+                return Neo4jHasDeclareEdge(
                     source=self.source.to_neo4j_node(),
                     target=self.target.to_neo4j_node(),
                 )
@@ -196,6 +245,7 @@ class Neo4jFileNode(TypedDict):
     node_id: int
     basename: str
     relative_path: str
+    type: str
 
 
 class Neo4jASTNode(TypedDict):
@@ -204,6 +254,7 @@ class Neo4jASTNode(TypedDict):
     start_line: int
     end_line: int
     text: str
+    depth: int
 
 
 class Neo4jTextNode(TypedDict):
@@ -211,6 +262,14 @@ class Neo4jTextNode(TypedDict):
     text: str
     metadata: str
 
+
+class Neo4jDeclareNode(TypedDict):
+    node_id: int
+    type: str
+    start_line: int
+    end_line: int
+    text: str
+    depth: int
 
 class Neo4jHasFileEdge(TypedDict):
     source: Neo4jFileNode
@@ -235,3 +294,8 @@ class Neo4jHasTextEdge(TypedDict):
 class Neo4jNextChunkEdge(TypedDict):
     source: Neo4jTextNode
     target: Neo4jTextNode
+
+
+class Neo4jHasDeclareEdge(TypedDict):
+    source: Neo4jFileNode
+    target: Neo4jDeclareNode

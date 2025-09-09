@@ -28,32 +28,39 @@ import igittigitt
 from app.graph.file_graph_builder import FileGraphBuilder
 from app.graph.graph_types import (
     ASTNode,
+    DeclareNode,
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,
     Neo4jASTNode,
     Neo4jFileNode,
+    Neo4jDeclareNode,
     Neo4jHasASTEdge,
     Neo4jHasFileEdge,
     Neo4jHasTextEdge,
+    Neo4jHasDeclareEdge,
     Neo4jNextChunkEdge,
     Neo4jParentOfEdge,
     Neo4jTextNode,
     TextNode,
 )
 
+# Create astnode_args object with the provided max_ast_depth
+from app.configuration.config import ASTNodeConfig
 
 class KnowledgeGraph:
     def __init__(
         self,
-        max_ast_depth: int,
+        astnode_args: dict,
         chunk_size: int,
         chunk_overlap: int,
         root_node_id: int,
         root_node: Optional[KnowledgeGraphNode] = None,
         knowledge_graph_nodes: Optional[Sequence[KnowledgeGraphNode]] = None,
         knowledge_graph_edges: Optional[Sequence[KnowledgeGraphEdge]] = None,
+        knowledge_graph_selected_nodes: Optional[Sequence[KnowledgeGraphNode]] = None,
+        knowledge_graph_selected_edges: Optional[Sequence[KnowledgeGraphEdge]] = None,
     ):
         """Initializes the knowledge graph.
 
@@ -66,7 +73,8 @@ class KnowledgeGraph:
           knowledge_graph_nodes: The initial list of knowledge graph nodes.
           knowledge_graph_edges: The initial list of knowledge graph edges.
         """
-        self.max_ast_depth = max_ast_depth
+        self.astnode_args = astnode_args
+        self.max_ast_depth = astnode_args.max_ast_depth
         self.root_node_id = root_node_id
         self._root_node = root_node
         self._knowledge_graph_nodes = (
@@ -77,7 +85,7 @@ class KnowledgeGraph:
         )
         self._next_node_id = root_node_id + len(self._knowledge_graph_nodes)
 
-        self._file_graph_builder = FileGraphBuilder(max_ast_depth, chunk_size, chunk_overlap)
+        self._file_graph_builder = FileGraphBuilder(astnode_args, chunk_size, chunk_overlap)
         self._logger = logging.getLogger("prometheus.graph.knowledge_graph")
 
     def build_graph(self, root_dir: Path):
@@ -154,21 +162,23 @@ class KnowledgeGraph:
     def from_neo4j(
         cls,
         root_node_id: int,
-        max_ast_depth: int,
+        astnode_args: ASTNodeConfig,
         chunk_size: int,
         chunk_overlap: int,
         file_nodes: Sequence[KnowledgeGraphNode],
         ast_nodes: Sequence[KnowledgeGraphNode],
         text_nodes: Sequence[KnowledgeGraphNode],
+        declare_nodes: Sequence[KnowledgeGraphNode],
         parent_of_edges_ids: Sequence[Mapping[str, int]],
         has_file_edges_ids: Sequence[Mapping[str, int]],
         has_ast_edges_ids: Sequence[Mapping[str, int]],
+        has_declare_edges_ids: Sequence[Mapping[str, int]],
         has_text_edges_ids: Sequence[Mapping[str, int]],
         next_chunk_edges_ids: Sequence[Mapping[str, int]],
     ):
         """Creates a knowledge graph from nodes and edges stored in neo4j."""
         # All nodes
-        knowledge_graph_nodes = [x for x in itertools.chain(file_nodes, ast_nodes, text_nodes)]
+        knowledge_graph_nodes = [x for x in itertools.chain(file_nodes, ast_nodes, text_nodes, declare_nodes)]
 
         # All edges
         node_id_to_node = {x.node_id: x for x in knowledge_graph_nodes}
@@ -204,6 +214,14 @@ class KnowledgeGraph:
             )
             for has_text_edge_ids in has_text_edges_ids
         ]
+        has_declare_edges = [
+            KnowledgeGraphEdge(
+                node_id_to_node[has_declare_edge_ids["source_id"]],
+                node_id_to_node[has_declare_edge_ids["target_id"]],
+                KnowledgeGraphEdgeType.has_declare,
+            )
+            for has_declare_edge_ids in has_declare_edges_ids
+        ]
         next_chunk_edges = [
             KnowledgeGraphEdge(
                 node_id_to_node[next_chunk_edge_ids["source_id"]],
@@ -215,7 +233,7 @@ class KnowledgeGraph:
         knowledge_graph_edges = [
             x
             for x in itertools.chain(
-                parent_of_edges, has_file_edges, has_ast_edges, has_text_edges, next_chunk_edges
+                parent_of_edges, has_file_edges, has_ast_edges, has_text_edges, has_declare_edges, next_chunk_edges
             )
         ]
 
@@ -228,8 +246,10 @@ class KnowledgeGraph:
         if root_node is None:
             raise ValueError(f"Node with node_id {root_node_id} not found.")
 
+        
+        
         return cls(
-            max_ast_depth=max_ast_depth,
+            astnode_args=astnode_args,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             root_node_id=root_node_id,
@@ -357,6 +377,11 @@ class KnowledgeGraph:
             kg_node for kg_node in self._knowledge_graph_nodes if isinstance(kg_node.node, TextNode)
         ]
 
+    def get_declare_nodes(self) -> Sequence[KnowledgeGraphNode]:
+        return [
+            kg_node for kg_node in self._knowledge_graph_nodes if isinstance(kg_node.node, DeclareNode)
+        ]
+
     def get_has_ast_edges(self) -> Sequence[KnowledgeGraphEdge]:
         return [
             kg_edge
@@ -376,6 +401,13 @@ class KnowledgeGraph:
             kg_edge
             for kg_edge in self._knowledge_graph_edges
             if kg_edge.type == KnowledgeGraphEdgeType.has_text
+        ]
+    
+    def get_has_declare_edges(self) -> Sequence[KnowledgeGraphEdge]:
+        return [
+            kg_edge
+            for kg_edge in self._knowledge_graph_edges
+            if kg_edge.type == KnowledgeGraphEdgeType.has_declare
         ]
 
     def get_next_chunk_edges(self) -> Sequence[KnowledgeGraphEdge]:
@@ -401,6 +433,9 @@ class KnowledgeGraph:
     def get_neo4j_text_nodes(self) -> Sequence[Neo4jTextNode]:
         return [kg_node.to_neo4j_node() for kg_node in self.get_text_nodes()]
 
+    def get_neo4j_declare_nodes(self) -> Sequence[Neo4jDeclareNode]:
+        return [kg_node.to_neo4j_node() for kg_node in self.get_declare_nodes()]
+
     def get_neo4j_has_ast_edges(self) -> Sequence[Neo4jHasASTEdge]:
         return [kg_edge.to_neo4j_edge() for kg_edge in self.get_has_ast_edges()]
 
@@ -409,6 +444,9 @@ class KnowledgeGraph:
 
     def get_neo4j_has_text_edges(self) -> Sequence[Neo4jHasTextEdge]:
         return [kg_edge.to_neo4j_edge() for kg_edge in self.get_has_text_edges()]
+
+    def get_neo4j_has_declare_edges(self) -> Sequence[Neo4jHasDeclareEdge]:
+        return [kg_edge.to_neo4j_edge() for kg_edge in self.get_has_declare_edges()]
 
     def get_neo4j_next_chunk_edges(self) -> Sequence[Neo4jNextChunkEdge]:
         return [kg_edge.to_neo4j_edge() for kg_edge in self.get_next_chunk_edges()]
