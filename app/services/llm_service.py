@@ -5,6 +5,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.chat_models.custom_chat_openai import CustomChatOpenAI
+from app.chat_models.custom_vertex_ai_chat import CustomVertexAIChatModel
 from app.services.base_service import BaseService
 
 
@@ -17,6 +18,8 @@ class LLMService(BaseService):
         openai_format_base_url: Optional[str] = None,
         anthropic_api_key: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
+        vertex_ai_project_id: Optional[str] = None,
+        vertex_ai_location: Optional[str] = "us-central1",
         temperature: float = 0.0,
         max_output_tokens: int = 15000,
     ):
@@ -26,6 +29,8 @@ class LLMService(BaseService):
             openai_format_base_url,
             anthropic_api_key,
             gemini_api_key,
+            vertex_ai_project_id,
+            vertex_ai_location,
             0.0,
             max_output_tokens,
         )
@@ -35,6 +40,8 @@ class LLMService(BaseService):
             openai_format_base_url,
             anthropic_api_key,
             gemini_api_key,
+            vertex_ai_project_id,
+            vertex_ai_location,
             temperature,
             max_output_tokens,
         )
@@ -46,6 +53,8 @@ def get_model(
     openai_format_base_url: Optional[str] = None,
     anthropic_api_key: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
+    vertex_ai_project_id: Optional[str] = None,
+    vertex_ai_location: Optional[str] = None,
     temperature: float = 0.0,
     max_output_tokens: int = 15000,
 ) -> BaseChatModel:
@@ -57,7 +66,18 @@ def get_model(
             max_tokens_to_sample=max_output_tokens,
             max_retries=3,
         )
+    elif "gemini" in model_name and vertex_ai_project_id:
+        # Use Vertex AI for Gemini models when project_id is provided
+        return CustomVertexAIChatModel(
+            model_name=model_name,
+            project_id=vertex_ai_project_id,
+            location=vertex_ai_location,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            max_retries=3,
+        )
     elif "gemini" in model_name:
+        # Use Google AI Studio API for Gemini models
         return ChatGoogleGenerativeAI(
             model=model_name,
             api_key=gemini_api_key,

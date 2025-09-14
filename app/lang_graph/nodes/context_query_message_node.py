@@ -9,7 +9,7 @@ from app.utils.logger_manager import get_thread_logger
 
 class ContextQueryMessageNode:
     def __init__(self):
-        self._logger = get_thread_logger(__name__)
+        self._logger, _file_handler  = get_thread_logger(__name__)
 
     def __call__(self, state: ContextRetrievalState):
         human_message = HumanMessage(state["query"])

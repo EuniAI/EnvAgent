@@ -17,6 +17,7 @@ from app.services.llm_service import LLMService
 from app.services.neo4j_service import Neo4jService
 from app.services.repository_service import RepositoryService
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.subgraphs.env_implement_subgraph import EnvImplementSubgraph
 
 # SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
 
@@ -115,6 +116,8 @@ llm_service = LLMService(
     openai_format_base_url=settings.OPENAI_FORMAT_BASE_URL,
     anthropic_api_key=settings.ANTHROPIC_API_KEY,
     gemini_api_key=settings.GEMINI_API_KEY,
+    vertex_ai_project_id=settings.VERTEX_AI_PROJECT_ID,
+    vertex_ai_location=settings.VERTEX_AI_LOCATION,
     temperature=settings.TEMPERATURE,
     max_output_tokens=settings.MAX_OUTPUT_TOKENS,
 )
@@ -152,25 +155,13 @@ def reproduce_test(
         settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
     )
     git_repo = repository_service.get_repository(repo_path)
-
-    # # Construct the working directory
-    # if dockerfile_content or image_name:
-    #     container = UserDefinedContainer(
-    #         repo_path,
-    #         workdir,
-    #         build_commands,
-    #         test_commands,
-    #         dockerfile_content,
-    #         image_name,
-    #     )
-    # else:
     container = GeneralContainer(repo_path)
-    # Start the container
+    # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
-    container.start_container()
+    container.start_container(use_volume_mapping=True)
 
     # Initialize the bug reproduce graph
-    bug_reproduction_subgraph = BugReproductionSubgraph(
+    env_implement_subgraph = EnvImplementSubgraph(
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
         container=container,
@@ -183,8 +174,8 @@ def reproduce_test(
     # Invoke the bug reproduction subgraph
     logger.info("Starting bug reproduction...")
     try:
-        output_states = bug_reproduction_subgraph.invoke(
-            issue_title=issue_title, issue_body=issue_body, issue_comments=issue_comments
+        output_states = env_implement_subgraph.invoke(
+            recursion_limit=200,
         )
     except Exception as e:
         logger.error(f"Error in bug reproduction: {str(e)}\n{traceback.format_exc()}")
@@ -203,17 +194,25 @@ def reproduce_test(
     else:
         logger.info("Keeping existing repository resources for reuse")
     
-    logger.info(f"reproduced_bug: {output_states['reproduced_bug']}")
-    logger.info(f"reproduced_bug_file: {output_states['reproduced_bug_file']}")
-    logger.info(f"reproduced_bug_commands: {output_states['reproduced_bug_commands']}")
-    logger.info(f"reproduced_bug_patch: {output_states['reproduced_bug_patch']}")
-    return (
-        output_states["reproduced_bug"],
-        output_states["reproduced_bug_file"],
-        output_states["reproduced_bug_commands"],
-        output_states["reproduced_bug_patch"],
-    )
-
+    # Get generated files from container (including Dockerfile)
+    generated_dockerfile = container.get_dockerfile_from_container()
+    if generated_dockerfile:
+        logger.info(f"Generated Dockerfile found at: {generated_dockerfile}")
+        # Read the content of the generated Dockerfile
+        try:
+            with open(generated_dockerfile, 'r', encoding='utf-8') as f:
+                generated_dockerfile_content = f.read()
+            logger.info(f"Generated Dockerfile content:\n{generated_dockerfile_content}")
+            # Update the output states with the actual generated file
+            output_states['dockerfile_path'] = generated_dockerfile
+            output_states['dockerfile_content'] = generated_dockerfile_content
+        except Exception as e:
+            logger.error(f"Error reading generated Dockerfile: {e}")
+    
+    logger.info(f"context files: {output_states['env_implement_file_context']}")
+    logger.info(f"dockerfile path: {output_states['dockerfile_path']}")
+    logger.info(f"dockerfile content: {output_states['dockerfile_content']}")
+    return output_states
 
 @click.command()
 @click.option(
@@ -269,20 +268,14 @@ def main(
         image_name = project["image"]
 
         # Reproduce the bug
-        (reproduced_bug, reproduced_bug_file, reproduced_bug_commands, reproduced_bug_patch) = (
-            reproduce_test(
-                github_url,
-                github_token,
-                image_name,
-                "/testbed",
-            )
-        )
-        predictions[github_ds["instance_id"]] = {
-            "reproduced_bug": reproduced_bug,
-            "reproduced_bug_file": str(reproduced_bug_file),
-            "reproduced_bug_commands": reproduced_bug_commands,
-            "reproduced_bug_patch": reproduced_bug_patch,
-        }
+        output_states = reproduce_test(github_url, github_token, image_name, "/testbed")
+        
+        # predictions[github_ds["instance_id"]] = {
+        #     "reproduced_bug": reproduced_bug,
+        #     "reproduced_bug_file": str(reproduced_bug_file),
+        #     "reproduced_bug_commands": reproduced_bug_commands,
+        #     "reproduced_bug_patch": reproduced_bug_patch,
+        # }
 
         with open(file, "w", encoding="utf-8") as f:
             json.dump(predictions, f, indent=4, ensure_ascii=False)

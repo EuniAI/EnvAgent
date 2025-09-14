@@ -109,7 +109,7 @@ Find the THREE most relevant test cases with complete context, ensuring ALL nece
 """
 
     def __init__(self):
-        self._logger = get_thread_logger(__name__)
+        self._logger, _file_handler  = get_thread_logger(__name__)
 
     def __call__(self, state: BugReproductionState):
         bug_reproducing_query = self.BUG_REPRODUCING_QUERY.format(

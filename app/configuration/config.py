@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # API Keys
     ANTHROPIC_API_KEY: str
     GEMINI_API_KEY: str
+    VERTEX_AI_PROJECT_ID: str
+    VERTEX_AI_LOCATION: str
     OPENAI_FORMAT_BASE_URL: str
     OPENAI_FORMAT_API_KEY: str
 

@@ -324,7 +324,7 @@ class KnowledgeGraph:
             result_lines.append(line_prefix + file_node.node.basename)
 
             sorted_children_file_node = sorted(
-                file_node_adjacency_dict, key=lambda x: x.node.basename
+                file_node_adjacency_dict[file_node], key=lambda x: x.node.basename
             )
 
             # Traverse the children in reverse order to maintain the correct tree shape

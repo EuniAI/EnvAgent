@@ -34,7 +34,7 @@ class GeneralContainer(BaseContainer):
             project_path (Path): Path to the project directory to be containerized.
         """
         super().__init__(project_path)
-        self.tag_name = f"prometheus_general_container_{uuid.uuid4().hex[:10]}"
+        self.tag_name = f"prometheus_envagent_container_{uuid.uuid4().hex[:10]}"
 
     def get_dockerfile_content(self) -> str:
         """Get the Dockerfile content for the general-purpose container.

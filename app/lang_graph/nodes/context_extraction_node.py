@@ -10,6 +10,7 @@ from app.exceptions.file_operation_exception import FileOperationException
 from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
 from app.models.context import Context
 from app.utils.file_utils import read_file_with_line_numbers
+from app.utils.logger_manager import get_thread_logger
 from app.utils.lang_graph_util import (
     extract_last_tool_messages,
     transform_tool_messages_to_str,
@@ -108,9 +109,7 @@ class ContextExtractionNode:
         structured_llm = model.with_structured_output(ContextExtractionStructuredOutput)
         self.model = prompt | structured_llm
         self.root_path = root_path
-        self._logger = logging.getLogger(
-            f"thread-{threading.get_ident()}.prometheus.lang_graph.nodes.context_extraction_node"
-        )
+        self._logger, file_handler = get_thread_logger(__name__)
 
     def get_human_message(self, state: ContextRetrievalState) -> str:
         full_context_str = transform_tool_messages_to_str(

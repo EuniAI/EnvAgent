@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import docker  # Docker SDK for Python
-
+from app.utils.logger_manager import get_thread_logger
 
 class BaseContainer(ABC):
     """An abstract base class for managing Docker containers with file synchronization capabilities.
@@ -38,9 +38,8 @@ class BaseContainer(ABC):
         # Initialize Docker client
         self.client = docker.from_env()
         
-        self._logger = logging.getLogger(
-            f"thread-{threading.get_ident()}.{self.__class__.__module__}.{self.__class__.__name__}"
-        )
+        self._logger, _file_handler = get_thread_logger(__name__)
+        
         temp_dir = Path(tempfile.mkdtemp())
         temp_project_path = temp_dir / project_path.name
         shutil.copytree(project_path, temp_project_path)
@@ -76,23 +75,144 @@ class BaseContainer(ABC):
             path=str(self.project_path), dockerfile=dockerfile_path.name, tag=self.tag_name
         )
 
-    def start_container(self):
+    def start_container(self, use_volume_mapping: bool = False):
         """Start a Docker container from the built image.
 
         Starts a detached container with TTY enabled and mounts the Docker socket.
+        Optionally uses volume mapping for real-time file synchronization.
+
+        Args:
+            use_volume_mapping (bool): If True, maps project directory as volume for 
+                                     real-time bidirectional file sync. Defaults to False.
         """
         self._logger.info(f"Starting container from image {self.tag_name}")
+        
+        # Base volumes (Docker socket)
+        volumes = {"/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"}}
+        
+        # Add volume mapping if requested
+        if use_volume_mapping:
+            volumes[str(self.project_path)] = {"bind": self.workdir, "mode": "rw"}
+            self._logger.info(f"Using volume mapping: {self.project_path} -> {self.workdir}")
+        
         self.container = self.client.containers.run(
             self.tag_name,
             detach=True,
             tty=True,
             network_mode="host",
             environment={"PYTHONPATH": f"{self.workdir}:$PYTHONPATH"},
-            volumes={"/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"}},
+            volumes=volumes,
         )
+        # Print container information after starting
+        self.print_container_info()
 
     def is_running(self) -> bool:
         return bool(self.container)
+
+    def get_container_id(self) -> str:
+        """Get the container ID.
+        
+        Returns:
+            str: The full container ID.
+        """
+        if not self.container:
+            raise RuntimeError("Container is not running")
+        return self.container.id
+
+    def get_container_short_id(self) -> str:
+        """Get the container short ID.
+        
+        Returns:
+            str: The short container ID (first 12 characters).
+        """
+        if not self.container:
+            raise RuntimeError("Container is not running")
+        return self.container.short_id
+
+    def get_container_name(self) -> str:
+        """Get the container name.
+        
+        Returns:
+            str: The container name.
+        """
+        if not self.container:
+            raise RuntimeError("Container is not running")
+        return self.container.name
+
+    def get_docker_exec_command(self) -> str:
+        """Get the docker exec command to enter the container.
+        
+        Returns:
+            str: The docker exec command string.
+        """
+        if not self.container:
+            raise RuntimeError("Container is not running")
+        container_id = self.get_container_short_id()
+        return f"docker exec -it {container_id} /bin/bash"
+
+    def print_container_info(self):
+        """Print container information including ID and exec command."""
+        if not self.container:
+            self._logger.warning("Container is not running")
+            return
+        
+        container_id = self.get_container_id()
+        short_id = self.get_container_short_id()
+        container_name = self.get_container_name()
+        exec_command = self.get_docker_exec_command()
+        
+        self._logger.info(f"Container ID: {container_id}")
+        self._logger.info(f"Container Short ID: {short_id}")
+        self._logger.info(f"Container Name: {container_name}")
+        self._logger.info(f"To enter container, run: {exec_command}")
+
+    def get_generated_files(self, file_pattern: str = "*") -> list[Path]:
+        """Get files generated in the container that are now available on the host.
+        
+        This method works when volume mapping is enabled, allowing real-time access
+        to files created inside the container.
+
+        Args:
+            file_pattern (str): Pattern to match files (e.g., "Dockerfile*", "*.log")
+
+        Returns:
+            list[Path]: List of generated files found on the host
+        """
+        if not self.container:
+            self._logger.warning("Container is not running")
+            return []
+
+        generated_files = []
+        try:
+            # List files in the container's workdir
+            result = self.execute_command(f"find {self.workdir} -name '{file_pattern}' -type f")
+            if result.strip():
+                for line in result.strip().split('\n'):
+                    if line.strip():
+                        # Convert container path to host path
+                        container_path = line.strip()
+                        if container_path.startswith(self.workdir):
+                            relative_path = container_path[len(self.workdir):].lstrip('/')
+                            host_path = self.project_path / relative_path
+                            if host_path.exists():
+                                generated_files.append(host_path)
+                                self._logger.info(f"Found generated file: {host_path}")
+        except Exception as e:
+            self._logger.error(f"Error listing generated files: {e}")
+
+        return generated_files
+
+    def get_dockerfile_from_container(self) -> Optional[Path]:
+        """Get the Dockerfile generated in the container.
+
+        Returns:
+            Optional[Path]: Path to the Dockerfile on the host, or None if not found
+        """
+        dockerfiles = self.get_generated_files("Dockerfile*")
+        if dockerfiles:
+            # Return the first Dockerfile found
+            return dockerfiles[0]
+        return None
 
     def update_files(
         self, project_root_path: Path, updated_files: Sequence[Path], removed_files: Sequence[Path]
