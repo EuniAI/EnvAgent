@@ -221,9 +221,6 @@ class BugReproductionSubgraph:
 
     def invoke(
         self,
-        issue_title: str,
-        issue_body: str,
-        issue_comments: Sequence[Mapping[str, str]],
         recursion_limit: int = 200,
     ):
         """
@@ -241,16 +238,8 @@ class BugReproductionSubgraph:
         config = {"recursion_limit": recursion_limit}
 
         input_state = {
-            "issue_title": issue_title,
-            "issue_body": issue_body,
-            "issue_comments": issue_comments,
             "max_refined_query_loop": 3,
         }
 
         output_state = self.subgraph.invoke(input_state, config)
-        return {
-            "reproduced_bug": output_state["reproduced_bug"],
-            "reproduced_bug_file": output_state["reproduced_bug_file"],
-            "reproduced_bug_commands": output_state["reproduced_bug_commands"],
-            "reproduced_bug_patch": output_state["bug_reproducing_patch"],
-        }
+        return output_state

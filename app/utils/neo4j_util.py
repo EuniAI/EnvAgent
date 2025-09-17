@@ -37,6 +37,19 @@ def neo4j_data_for_context_generator(
         return
 
     for search_result in data:
+        # Handle case where search_result is the FileNode content directly
+        # (e.g., {'basename': 'README.md', 'relative_path': 'README.md', 'node_id': 4142745})
+        if "FileNode" not in search_result and "relative_path" in search_result:
+            # This is a FileNode content directly, create a minimal context
+            context = Context(
+                relative_path=search_result["relative_path"],
+                content="",  # No content available for file nodes without AST/Text content
+                start_line_number=None,
+                end_line_number=None,
+            )
+            yield context
+            continue
+            
         search_result_keys = search_result.keys()
         # Skip if the result has no keys or only contains the "FileNode" key
         if len(search_result_keys) == 1:

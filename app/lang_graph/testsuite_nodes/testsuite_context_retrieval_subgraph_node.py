@@ -37,7 +37,7 @@ class ContextRetrievalSubgraphNode:
     def __call__(self, state: Dict) -> Dict[str, Sequence[Context]]:
         self._logger.info("Enter context retrieval subgraph")
         output_state = self.context_retrieval_subgraph.invoke(
-            state[self.query_key_name], state["max_refined_query_loop"]
+            state[self.query_key_name], state["testsuite_max_refined_query_loop"]
         )
-        self._logger.info(f"Context retrieved: {output_state['context']}")
-        return {self.context_key_name: output_state["context"]}
+        self._logger.info(f"Testsuite Context retrieved: {output_state['testsuite_context']}")
+        return {self.context_key_name: output_state["testsuite_context"]}

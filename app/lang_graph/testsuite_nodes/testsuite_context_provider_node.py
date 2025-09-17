@@ -20,7 +20,7 @@ from app.tools import graph_traversal
 from app.utils.logger_manager import get_thread_logger
 
 
-class ContextProviderNode:
+class TestsuiteContextProviderNode:
     """Provides contextual information from a codebase using knowledge graph search.
 
     This class implements a systematic approach to finding relevant code context
@@ -35,55 +35,34 @@ class ContextProviderNode:
     """
 
     SYS_PROMPT = """\
-You are a context gatherer that searches a Neo4j knowledge graph representation of a 
-codebase. Your role is to understand the logic of the project and efficiently find relevant code and documentation 
-context based on user queries.
+You are a focused documentation finder. Your ONLY goal is to quickly locate ONE documentation file that contains test commands or verification instructions.
 
-Knowledge Graph Structure:
-1. Node Types:
-   - FileNode: Files and directories in the codebase
-   - ASTNode: Abstract Syntax Tree nodes representing code structure
-   - TextNode: Documentation, comments, and other text content
+CRITICAL: Find just ONE suitable documentation file, then STOP. Do not search multiple files.
 
-2. Core Relationships:
-   - HAS_FILE: Directory → File relationships
-   - HAS_AST: File → AST root node connection
-   - HAS_TEXT: File → Text chunk linkage
-   - PARENT_OF: AST node hierarchy
-   - NEXT_CHUNK: Sequential text chunk connections
+Target file types (in priority order):
+1) README.md (most likely to contain quick test commands)
+2) README.rst or README (alternative README formats)
+3) docs/quickstart.md, docs/getting-started.md, docs/installation.md
+4) Makefile (if referenced in docs)
 
-Search Strategy Guidelines:
-1. Source Code Search:
-   - Prioritize relative_path tools when exact file location is known
-   - Fall back to basename tools for filename-only searches
-   - Use AST node searches to find specific code structures
-   - Use preview_* or read_* tools with more than hundred lines to get more context than class/function
-   - If a search returns no results, try alternative approaches with broader scope
+What to look for in the file:
+- Quick verification commands like "make test", "pytest -q", "npm test", "cargo test"
+- Version check commands like "python --version", "node --version"
+- Health check commands like "make check", "make doctor"
+- Any documented test or verification instructions
 
-2. Documentation/Text Search:
-   - Use find_text_node_* tools for docs and comments
-   - Follow NEXT_CHUNK relationships for complete text using get_next_text_node_with_node_id
-   - Search globally or scope to specific files as needed
-   - Be flexible with search terms if initial attempts fail
-
-3. Exploratory Search:
-   - Start with find_file_node_* to verify paths
-   - Use preview_file_content_* for quick content scanning
-   - Use read_code_* tools to read more content beyond previews
-   - Always have fallback strategies ready if primary search fails
-
-4. Critical Rules:
-   - Do not repeat the same query!
-
-In your response, just provide a short summary with a few sentences (3-4 sentences) on what you have done.
-As your searched are automatically visible to the user, you do not need to repeat them. 
+Search strategy:
+1. Use find_file_node_with_basename to locate README files first
+2. Use preview_file_content_* to quickly scan the file content
+3. If README doesn't contain test commands, try docs/quickstart.md or similar
+4. STOP after finding ONE file with test commands - do not search further
 
 The file tree of the codebase:
 {file_tree}
 
-Available AST node types for code structure search: {ast_node_types}
+Available AST node types (for completeness): {ast_node_types}
 
-PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
+REMEMBER: Find ONE file, scan it quickly, then STOP. Do not repeat searches or explore multiple files.
 """
 
     def __init__(
@@ -166,75 +145,6 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
             response_format="content_and_artifact",
         )
         tools.append(find_file_node_with_relative_path_tool)
-
-        # === AST NODE SEARCH TOOLS ===
-
-        # Tool: Find AST node by text match in file (by basename)
-        # Useful for searching specific snippets or patterns in unknown locations
-        find_ast_node_with_text_in_file_with_basename_fn = functools.partial(
-            graph_traversal.find_ast_node_with_text_in_file_with_basename,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_text_in_file_with_basename_tool = StructuredTool.from_function(
-            func=find_ast_node_with_text_in_file_with_basename_fn,
-            name=graph_traversal.find_ast_node_with_text_in_file_with_basename.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TEXT_IN_FILE_WITH_BASENAME_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTextInFileWithBasenameInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_text_in_file_with_basename_tool)
-
-        # Tool: Find AST node by text match in file (by relative path)
-        find_ast_node_with_text_in_file_with_relative_path_fn = functools.partial(
-            graph_traversal.find_ast_node_with_text_in_file_with_relative_path,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_text_in_file_with_relative_path_tool = StructuredTool.from_function(
-            func=find_ast_node_with_text_in_file_with_relative_path_fn,
-            name=graph_traversal.find_ast_node_with_text_in_file_with_relative_path.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TEXT_IN_FILE_WITH_RELATIVE_PATH_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTextInFileWithRelativePathInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_text_in_file_with_relative_path_tool)
-
-        # Tool: Find AST node by type in file (by basename)
-        # Example types: FunctionDef, ClassDef, Assign, etc.
-        find_ast_node_with_type_in_file_with_basename_fn = functools.partial(
-            graph_traversal.find_ast_node_with_type_in_file_with_basename,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_type_in_file_with_basename_tool = StructuredTool.from_function(
-            func=find_ast_node_with_type_in_file_with_basename_fn,
-            name=graph_traversal.find_ast_node_with_type_in_file_with_basename.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TYPE_IN_FILE_WITH_BASENAME_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTypeInFileWithBasenameInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_type_in_file_with_basename_tool)
-
-        # Tool: Find AST node by type in file (by relative path)
-        find_ast_node_with_type_in_file_with_relative_path_fn = functools.partial(
-            graph_traversal.find_ast_node_with_type_in_file_with_relative_path,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_type_in_file_with_relative_path_tool = StructuredTool.from_function(
-            func=find_ast_node_with_type_in_file_with_relative_path_fn,
-            name=graph_traversal.find_ast_node_with_type_in_file_with_relative_path.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TYPE_IN_FILE_WITH_RELATIVE_PATH_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTypeInFileWithRelativePathInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_type_in_file_with_relative_path_tool)
-
         # === TEXT/DOCUMENT SEARCH TOOLS ===
 
         # Tool: Find text node globally by keyword
@@ -319,38 +229,6 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         )
         tools.append(preview_file_content_with_relative_path_tool)
 
-        # Tool: Read entire code file by basename
-        read_code_with_basename_fn = functools.partial(
-            graph_traversal.read_code_with_basename,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        read_code_with_basename_tool = StructuredTool.from_function(
-            func=read_code_with_basename_fn,
-            name=graph_traversal.read_code_with_basename.__name__,
-            description=graph_traversal.READ_CODE_WITH_BASENAME_DESCRIPTION,
-            args_schema=graph_traversal.ReadCodeWithBasenameInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(read_code_with_basename_tool)
-
-        # Tool: Read entire code file by relative path
-        read_code_with_relative_path_fn = functools.partial(
-            graph_traversal.read_code_with_relative_path,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        read_code_with_relative_path_tool = StructuredTool.from_function(
-            func=read_code_with_relative_path_fn,
-            name=graph_traversal.read_code_with_relative_path.__name__,
-            description=graph_traversal.READ_CODE_WITH_RELATIVE_PATH_DESCRIPTION,
-            args_schema=graph_traversal.ReadCodeWithRelativePathInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(read_code_with_relative_path_tool)
-
         return tools
 
     def _truncate_messages(self, messages: List[BaseMessage], max_tokens: int = 6000) -> List[BaseMessage]:
@@ -401,8 +279,19 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         Returns:
           Dictionary that will update the state with the model's response messages.
         """
+        # Check for repeated queries to prevent infinite loops
+        messages = state.get("testsuite_context_provider_messages", [])
+        if len(messages) > 3:
+            # Check if the last 3 messages contain ToolMessage (tool responses)
+            from langchain_core.messages import ToolMessage
+            recent_tool_messages = [msg for msg in messages if isinstance(msg, ToolMessage)]
+            if len(recent_tool_messages) >= 3:
+                # If we have multiple recent tool messages, check for repetition
+                self._logger.warning("Detected potential repeated tool calls, stopping to prevent infinite loop")
+                return {"testsuite_context_provider_messages": []}
+        
         # self._logger.debug(f"Context provider messages: {state['context_provider_messages']}")
-        message_history = [self.system_prompt] + state["context_provider_messages"]
+        message_history = [self.system_prompt] + state["testsuite_context_provider_messages"]
         
         # Truncate messages if they exceed token limits
         truncated_history = self._truncate_messages(message_history)
@@ -411,7 +300,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
             response = self.model_with_tools.invoke(truncated_history)
             self._logger.debug(response)
             # The response will be added to the bottom of the list
-            return {"context_provider_messages": [response]}
+            return {"testsuite_context_provider_messages": [response]}
         except Exception as e:
             if "context_length_exceeded" in str(e):
                 self._logger.warning("Context length exceeded, trying with more aggressive truncation")
@@ -419,6 +308,6 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
                 truncated_history = self._truncate_messages(message_history, max_tokens=4000)
                 response = self.model_with_tools.invoke(truncated_history)
                 self._logger.debug(response)
-                return {"context_provider_messages": [response]}
+                return {"testsuite_context_provider_messages": [response]}
             else:
                 raise

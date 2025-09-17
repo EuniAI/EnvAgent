@@ -77,7 +77,7 @@ class EnvImplementSubgraph:
             name="env_implement_file_tools",
             messages_key="env_implement_file_messages",
         )
-        git_diff_node = GitDiffNode(git_repo, "dockerfile_patch")  # todo: state from env_implement_state
+        git_diff_node = GitDiffNode(git_repo, "dockerfile_content")  # todo: state from env_implement_state
 
 
         workflow = StateGraph(EnvImplementState)

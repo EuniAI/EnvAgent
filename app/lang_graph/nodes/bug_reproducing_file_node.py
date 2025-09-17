@@ -10,6 +10,7 @@ from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.states.bug_reproduction_state import BugReproductionState
 from app.tools import file_operation
 from app.utils.lang_graph_util import get_last_message_content
+from app.utils.logger_manager import get_thread_logger
 
 
 class BugReproducingFileNode:
@@ -41,9 +42,7 @@ Current project structure:
         self.tools = self._init_tools(local_path)
         self.model_with_tools = model.bind_tools(self.tools)
         self.system_prompt = SystemMessage(self.SYS_PROMPT)
-        self._logger = logging.getLogger(
-            f"thread-{threading.get_ident()}.prometheus.lang_graph.nodes.bug_reproducing_file_node"
-        )
+        self._logger, _file_handler = get_thread_logger(__name__)
 
     def _init_tools(self, root_path: str):
         """Initializes file operation tools with the given root path.

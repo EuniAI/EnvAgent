@@ -292,13 +292,19 @@ class BaseContainer(ABC):
         self._logger.debug(f"Command output:\n{exec_result_str}")
         return exec_result_str
 
-    def restart_container(self):
+    def restart_container(self, use_volume_mapping: bool = False):
+        """Restart the container with optional volume mapping.
+        
+        Args:
+            use_volume_mapping (bool): If True, maps project directory as volume for 
+                                     real-time bidirectional file sync. Defaults to False.
+        """
         self._logger.info("Restarting the container")
         if self.container:
             self.container.stop(timeout=10)
             self.container.remove(force=True)
 
-        self.start_container()
+        self.start_container(use_volume_mapping=use_volume_mapping)
 
     def cleanup(self):
         """Clean up container resources and temporary files.

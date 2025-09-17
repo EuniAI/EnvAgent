@@ -26,7 +26,7 @@ class EnvImplementState(TypedDict):
     # Dockerfile auto-generation related
     dockerfile_content: str  # Generated Dockerfile content as string
     dockerfile_path: Path  # File path where the Dockerfile will be saved
-    dockerfile_failure_log: str  # Error logs if Dockerfile generation failed
+    testsuites_failure_log: str  # Error logs if testsuites generation failed
 
     # # Auto-configuration files related
     # config_files: Sequence[Mapping[str, str]]  # Mapping of filename -> content for configuration files

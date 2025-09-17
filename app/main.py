@@ -18,7 +18,7 @@ from app.services.neo4j_service import Neo4jService
 from app.services.repository_service import RepositoryService
 from app.utils.logger_manager import get_thread_logger
 from app.lang_graph.subgraphs.env_implement_subgraph import EnvImplementSubgraph
-
+from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
 # SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
 
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
@@ -160,7 +160,40 @@ def reproduce_test(
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
 
-    # Initialize the bug reproduce graph
+    # bug_reproduction_subgraph = BugReproductionSubgraph(
+    #     advanced_model=llm_service.advanced_model,
+    #     base_model=llm_service.base_model,
+    #     container=container,
+    #     kg=knowledge_graph,
+    #     git_repo=git_repo,
+    #     neo4j_driver=neo4j_service.neo4j_driver,
+    #     max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    # )
+    # logger.info("Starting bug reproduction...")
+    # try:
+    #     reproduction_output_states = bug_reproduction_subgraph.invoke(
+    #         recursion_limit=200,
+    #     )
+    # except Exception as e:
+    #     logger.error(f"Error in bug reproduction: {str(e)}\n{traceback.format_exc()}")
+    #     return False, None, None, None
+    testsuite_subgraph = TestsuiteSubgraph(
+        model=llm_service.advanced_model,
+        kg=knowledge_graph,
+        local_path=repo_path,
+        neo4j_driver=neo4j_service.neo4j_driver,
+        max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    )
+    logger.info("Starting testsuite...")
+    try:
+        output_states = testsuite_subgraph.invoke(
+            max_refined_query_loop=5,
+        )
+    except Exception as e:
+        logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+        return False, None, None, None
+    
+    # Initialize the bug reproduce graphfadb9c9ed1c7
     env_implement_subgraph = EnvImplementSubgraph(
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
@@ -172,13 +205,13 @@ def reproduce_test(
     )
 
     # Invoke the bug reproduction subgraph
-    logger.info("Starting bug reproduction...")
+    logger.info("Starting environment implementation...")
     try:
         output_states = env_implement_subgraph.invoke(
             recursion_limit=200,
         )
     except Exception as e:
-        logger.error(f"Error in bug reproduction: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
         return False, None, None, None
     finally:
         # Clean up resources

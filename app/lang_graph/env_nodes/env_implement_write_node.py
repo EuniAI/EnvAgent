@@ -13,18 +13,18 @@ from app.utils.logger_manager import get_thread_logger
 
 class EnvImplementWriteNode:
     SYS_PROMPT = '''\
-You are a Docker expert who creates optimized Dockerfiles for various programming languages and frameworks.
-Given project environment context and configuration files, create a complete Dockerfile that can successfully build and run the project.
+You are a bash scripting expert who creates optimized environment setup scripts for various programming languages and frameworks.
+Given project environment context and configuration files, create a complete executable bash script that can successfully set up and configure the project environment.
 
 Requirements:
-- Use appropriate base image for the project's technology stack
-- Install all necessary dependencies and system packages
-- Copy project files and set up working directory correctly
+- Install appropriate runtime and dependencies for the project's technology stack
+- Install all necessary system packages and tools
+- Set up project directory structure and permissions correctly
 - Configure runtime environment properly
-- Expose necessary ports and set up entry point
-- Follow Docker best practices for optimization and security
-- Use multi-stage builds when beneficial
-- Minimize image size and layers
+- Set up necessary environment variables and configurations
+- Follow bash scripting best practices for error handling and security
+- Use proper error handling and logging
+- Make the script idempotent and safe to run multiple times
 - Handle different project types (web apps, APIs, CLI tools, etc.)
 
 <example>
@@ -37,37 +37,92 @@ Python Flask web application with requirements.txt
 - Needs to install system packages for some dependencies
 </project_context>
 
-<dockerfile>
-# Use Python 3.9 slim image as base
-FROM python:3.9-slim
+<bash_script>
+#!/bin/bash
 
-# Set working directory
-WORKDIR /app
+# Exit on any error
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Logging function
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+error() {
+    echo -e "${RED}[ERROR] $1${NC}" >&2
+}
+
+warning() {
+    echo -e "${YELLOW}[WARNING] $1${NC}"
+}
+
+# Check if Python 3.9+ is installed
+check_python() {
+    if command -v python3 &> /dev/null; then
+        PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+        log "Python $PYTHON_VERSION found"
+    else
+        error "Python 3.9+ is required but not installed"
+        exit 1
+    fi
+}
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \\
-    gcc \\
-    && rm -rf /var/lib/apt/lists/*
+install_system_deps() {
+    log "Installing system dependencies..."
+    sudo apt-get update
+    sudo apt-get install -y gcc python3-dev python3-pip
+    log "System dependencies installed"
+}
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Set up virtual environment
+setup_venv() {
+    log "Setting up Python virtual environment..."
+    python3 -m venv venv
+    source venv/bin/activate
+    log "Virtual environment created and activated"
+}
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
-
-# Expose port
-EXPOSE 5000
+install_deps() {
+    log "Installing Python dependencies..."
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    log "Python dependencies installed"
+}
 
 # Set environment variables
-ENV FLASK_APP=app.py
-ENV FLASK_ENV=production
+setup_env() {
+    log "Setting up environment variables..."
+    export FLASK_APP=app.py
+    export FLASK_ENV=production
+    export FLASK_RUN_PORT=5000
+    log "Environment variables set"
+}
 
-# Run the application
-CMD ["python", "app.py"]
-</dockerfile>
+# Main setup function
+main() {
+    log "Starting Flask application environment setup..."
+    
+    check_python
+    install_system_deps
+    setup_venv
+    install_deps
+    setup_env
+    
+    log "Environment setup completed successfully!"
+    log "To run the application: source venv/bin/activate && python app.py"
+}
+
+# Run main function
+main "$@"
+</bash_script>
 </example>
 
 <thought_process>
@@ -77,24 +132,25 @@ CMD ["python", "app.py"]
    - Determine runtime requirements
    - Identify entry points and ports
 
-2. Choose Base Image:
-   - Select appropriate official base image
-   - Consider size and security
-   - Match language version requirements
+2. Plan Environment Setup:
+   - Determine required system packages
+   - Plan dependency installation order
+   - Consider version compatibility
+   - Plan for error handling and rollback
 
-3. Optimize Dockerfile:
-   - Use multi-stage builds if beneficial
-   - Copy dependency files first for better caching
-   - Minimize layers and image size
+3. Optimize Bash Script:
+   - Use proper error handling (set -e, trap)
+   - Add logging and progress indicators
+   - Make script idempotent and safe to re-run
    - Follow security best practices
 
-4. Configure Runtime:
-   - Set working directory
+4. Configure Environment:
+   - Set up working directory
    - Install system dependencies
    - Install application dependencies
    - Set environment variables
-   - Expose ports
-   - Set entry point
+   - Configure permissions and ownership
+   - Provide clear usage instructions
 </thought_process>
 '''
 

@@ -17,7 +17,6 @@ from langchain_core.messages import SystemMessage, BaseMessage
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
-from app.utils.logger_manager import get_thread_logger
 
 
 class ContextProviderNode:
@@ -120,7 +119,9 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         )
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
-        self._logger, _file_handler = get_thread_logger(__name__)
+        self._logger = logging.getLogger(
+            f"thread-{threading.get_ident()}.prometheus.lang_graph.nodes.context_provider_node"
+        )
 
     def _init_tools(self):
         """

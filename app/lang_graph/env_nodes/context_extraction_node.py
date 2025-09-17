@@ -46,7 +46,6 @@ CRITICAL RULE:
 - Several contexts can be extracted from the same file, but each context must be concise and relevant to the query.
 - Do NOT include any irrelevant lines or comments that do not contribute to answering the query.
 - Do NOT include same context multiple times.
-- IMPORTANT: When specifying relative_path, use the COMPLETE path including all subdirectories as shown in the context (e.g., 'flink-python/tox.ini'), NOT just the filename (e.g., 'tox.ini').
 
 Remember: Your primary goal is to summarize contexts that directly helps answer the query requirements.
 
@@ -82,7 +81,7 @@ class ContextOutput(BaseModel):
     reasoning: str = Field(
         description="Your step-by-step reasoning why the context is relevant to the query"
     )
-    relative_path: str = Field(description="Complete relative path to the context file in the codebase, including all subdirectories")
+    relative_path: str = Field(description="Relative path to the context file in the codebase")
     start_line: int = Field(
         description="Start line number of the context in the file, minimum is 1"
     )
