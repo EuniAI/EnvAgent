@@ -54,7 +54,8 @@ class EnvImplementSubgraph:
         file_context_retrieval_subgraph_node = FileContextRetrievalSubgraphNode(
             base_model,
             kg,
-            git_repo.playground_path,
+            #git_repo.playground_path,
+            container.project_path,
             neo4j_driver,
             max_token_per_neo4j_result,
             query_key_name = "env_implement_file_context_query",    
@@ -62,7 +63,7 @@ class EnvImplementSubgraph:
         )
         env_implement_write_message_node = EnvImplementWriteMessageNode()
         env_implement_write_node = EnvImplementWriteNode(
-            advanced_model, git_repo.playground_path
+            advanced_model, container.project_path
         )
         env_implement_write_tools = ToolNode(
             tools=env_implement_write_node.tools,
@@ -71,13 +72,13 @@ class EnvImplementSubgraph:
         )
 
         # Step 4: Edit files if necessary (based on tool calls)
-        env_implement_file_node = EnvImplementFileNode(base_model, kg, git_repo.playground_path)
+        env_implement_file_node = EnvImplementFileNode(base_model, kg, container.project_path)
         env_implement_file_tools = ToolNode(
             tools=env_implement_file_node.tools,
             name="env_implement_file_tools",
             messages_key="env_implement_file_messages",
         )
-        git_diff_node = GitDiffNode(git_repo, "dockerfile_content")  # todo: state from env_implement_state
+        git_diff_node = GitDiffNode(git_repo, "env_implement_bash_content")  # todo: state from env_implement_state
 
 
         workflow = StateGraph(EnvImplementState)

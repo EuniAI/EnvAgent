@@ -14,18 +14,19 @@ from app.utils.logger_manager import get_thread_logger
 class EnvImplementWriteNode:
     SYS_PROMPT = '''\
 You are a bash scripting expert who creates optimized environment setup scripts for various programming languages and frameworks.
-Given project environment context and configuration files, create a complete executable bash script that can successfully set up and configure the project environment.
+Given project environment context and configuration files, create a complete executable bash script that can successfully set up and configure the project environment, especially designed to run inside Docker containers.
 
 Requirements:
 - Install appropriate runtime and dependencies for the project's technology stack
-- Install all necessary system packages and tools
+- Install all necessary system packages and tools (consider Docker base image limitations)
 - Set up project directory structure and permissions correctly
-- Configure runtime environment properly
+- Configure runtime environment properly for containerized execution
 - Set up necessary environment variables and configurations
 - Follow bash scripting best practices for error handling and security
 - Use proper error handling and logging
 - Make the script idempotent and safe to run multiple times
 - Handle different project types (web apps, APIs, CLI tools, etc.)
+- Consider Docker container constraints (no sudo, root user, limited system access)
 
 <example>
 <project_context>
@@ -76,8 +77,8 @@ check_python() {
 # Install system dependencies
 install_system_deps() {
     log "Installing system dependencies..."
-    sudo apt-get update
-    sudo apt-get install -y gcc python3-dev python3-pip
+    apt-get update
+    apt-get install -y gcc python3-dev python3-pip
     log "System dependencies installed"
 }
 

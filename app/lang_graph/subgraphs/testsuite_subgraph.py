@@ -74,7 +74,7 @@ class TestsuiteSubgraph:
         testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, local_path)
 
         # Step 5: Reset tool messages to prepare for the next iteration (if needed)
-        reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
+        # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
 
         # Step 6: Refine the query if needed and loop back
         testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg)
@@ -87,9 +87,9 @@ class TestsuiteSubgraph:
         workflow.add_node("testsuite_context_provider_node", testsuite_context_provider_node)
         workflow.add_node("testsuite_context_provider_tools", testsuite_context_provider_tools)
         workflow.add_node("testsuite_context_extraction_node", testsuite_context_extraction_node)
-        workflow.add_node(
-            "reset_testsuite_context_provider_messages_node", reset_testsuite_context_provider_messages_node
-        )
+        # workflow.add_node(
+        #     "reset_testsuite_context_provider_messages_node", reset_testsuite_context_provider_messages_node
+        # )
         workflow.add_node("testsuite_context_refine_node", testsuite_context_refine_node)
 
         # Set the entry point for the workflow
@@ -104,8 +104,9 @@ class TestsuiteSubgraph:
             {"tools": "testsuite_context_provider_tools", END: "testsuite_context_extraction_node"},
         )
         workflow.add_edge("testsuite_context_provider_tools", "testsuite_context_provider_node")
-        workflow.add_edge("testsuite_context_extraction_node", "reset_testsuite_context_provider_messages_node")
-        workflow.add_edge("reset_testsuite_context_provider_messages_node", "testsuite_context_refine_node")
+        # workflow.add_edge("testsuite_context_extraction_node", "reset_testsuite_context_provider_messages_node")
+        # workflow.add_edge("reset_testsuite_context_provider_messages_node", "testsuite_context_refine_node")
+        workflow.add_edge("testsuite_context_extraction_node", "testsuite_context_refine_node")
 
         # If refined_query is non-empty AND no command found yet, loop back to provider; else terminate
         workflow.add_conditional_edges(

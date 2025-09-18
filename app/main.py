@@ -155,51 +155,44 @@ def reproduce_test(
         settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
     )
     git_repo = repository_service.get_repository(repo_path)
+    # Get git_repo pointing to container.project_path (temporary copy)
     container = GeneralContainer(repo_path)
     # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
+    container_git_repo = repository_service.get_repository(container.project_path)
+    
 
-    # bug_reproduction_subgraph = BugReproductionSubgraph(
-    #     advanced_model=llm_service.advanced_model,
-    #     base_model=llm_service.base_model,
-    #     container=container,
+    # testsuite_subgraph = TestsuiteSubgraph(
+    #     model=llm_service.advanced_model,
     #     kg=knowledge_graph,
-    #     git_repo=git_repo,
+    #     local_path=repo_path,
     #     neo4j_driver=neo4j_service.neo4j_driver,
-    #     max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    #     max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
     # )
-    # logger.info("Starting bug reproduction...")
+    # logger.info("Starting testsuite...")
     # try:
-    #     reproduction_output_states = bug_reproduction_subgraph.invoke(
-    #         recursion_limit=200,
+    #     testsuiteoutput_states = testsuite_subgraph.invoke(
+    #         max_refined_query_loop=5,
     #     )
     # except Exception as e:
-    #     logger.error(f"Error in bug reproduction: {str(e)}\n{traceback.format_exc()}")
+    #     logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+    #     # Clear the knowledge graph and repository
+    #     container.cleanup()
+    #     git_repo.reset_repository()
+    #     logger.removeHandler(file_handler)
+    #     file_handler.close()
     #     return False, None, None, None
-    testsuite_subgraph = TestsuiteSubgraph(
-        model=llm_service.advanced_model,
-        kg=knowledge_graph,
-        local_path=repo_path,
-        neo4j_driver=neo4j_service.neo4j_driver,
-        max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
-    )
-    logger.info("Starting testsuite...")
-    try:
-        output_states = testsuite_subgraph.invoke(
-            max_refined_query_loop=5,
-        )
-    except Exception as e:
-        logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-        return False, None, None, None
-    
+
+    testsuiteoutput_states = {'testsuite_command': ['mvn --version', 'java -version', 'git --version', 'find flink-yarn-tests/target -name "*.err" -or -name "*.out"', 'node --version', 'npm run lint', 'python --version', 'pip --version', './dev/lint-python.sh', 'hadoop version', 'docker --version', 'docker compose --version', 'openssl version', 'keytool -help', 'mvn test -Dtest="*TestCodeArchitectureTest*" -DfailIfNoTests=false -Dfast', 'hugo version']}
+
     # Initialize the bug reproduce graphfadb9c9ed1c7
     env_implement_subgraph = EnvImplementSubgraph(
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
         container=container,
         kg=knowledge_graph,
-        git_repo=git_repo,
+        git_repo=container_git_repo,
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
@@ -207,20 +200,18 @@ def reproduce_test(
     # Invoke the bug reproduction subgraph
     logger.info("Starting environment implementation...")
     try:
-        output_states = env_implement_subgraph.invoke(
+        env_output_states = env_implement_subgraph.invoke(
             recursion_limit=200,
         )
     except Exception as e:
         logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-        return False, None, None, None
-    finally:
-        # Clean up resources
+        # Clear the knowledge graph and repository
         container.cleanup()
         git_repo.reset_repository()
         logger.removeHandler(file_handler)
         file_handler.close()
-    # Clear the knowledge graph and repository after use
-    # Note: Only clean up if this was a new repository to avoid removing shared resources
+        return False, None, None, None
+        
     if is_new_repository:
         repository_service.clean_repository(github_url)
         logger.info("Cleaned up new repository resources")

@@ -14,7 +14,7 @@ Project Environment Context:
 {environment_context}
 
 
-Now generate a complete executable bash script that can successfully set up and configure the environment for this project. The bash script should:
+Now generate a complete executable bash script that can successfully set up and configure the environment for this project, especially designed to run inside Docker containers. The bash script should:
 1. Install the appropriate runtime and dependencies for the project's technology stack
 2. Install all necessary system packages and tools
 3. Set up the project directory structure and permissions
@@ -22,7 +22,7 @@ Now generate a complete executable bash script that can successfully set up and 
 5. Set up necessary environment variables and configurations
 6. Follow bash scripting best practices for error handling and security
 
-Make sure the bash script is self-contained and can set up the project environment from scratch.
+Make sure the bash script is self-contained and can set up the project environment from scratch in a Docker container environment.
 """
 
     FOLLOWUP_HUMAN_PROMPT = """\

@@ -24,8 +24,8 @@ class EnvImplementState(TypedDict):
     env_implement_execute_messages: Annotated[Sequence[BaseMessage], add_messages]  # Messages for execution operations
 
     # Dockerfile auto-generation related
-    dockerfile_content: str  # Generated Dockerfile content as string
-    dockerfile_path: Path  # File path where the Dockerfile will be saved
+    env_implement_bash_content: str  # Generated Dockerfile content as string
+    env_implement_bash_path: Path  # File path where the Dockerfile will be saved
     testsuites_failure_log: str  # Error logs if testsuites generation failed
 
     # # Auto-configuration files related

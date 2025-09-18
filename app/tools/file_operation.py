@@ -6,8 +6,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from app.utils.str_util import pre_append_line_numbers
-
-logger = logging.getLogger("prometheus.tools.file_operation")
+from app.utils.logger_manager import get_thread_logger
+logger, _file_handler = get_thread_logger(__name__)
 
 
 class ReadFileInput(BaseModel):
@@ -91,14 +91,17 @@ Returns an error message if the file already exists.
 
 def create_file(relative_path: str, root_path: str, content: str) -> str:
     if os.path.isabs(relative_path):
+        logger.error(f"relative_path: {relative_path} is a absolute path, not relative path.")
         return f"relative_path: {relative_path} is a absolute path, not relative path."
 
     file_path = Path(os.path.join(root_path, relative_path))
     if file_path.exists():
+        logger.error(f"The file {relative_path} already exists.")
         return f"The file {relative_path} already exists."
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content)
+    logger.info(f"The file {relative_path} has been created.")
     return f"The file {relative_path} has been created."
 
 

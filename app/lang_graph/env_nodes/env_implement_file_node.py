@@ -16,24 +16,25 @@ from app.utils.logger_manager import get_thread_logger
 
 class EnvImplementFileNode:
     SYS_PROMPT = """\
-    You are a Dockerfile manager. Your task is to save the provided Dockerfile in the project. You should:
+    You are a bash script file manager. Your task is to save the provided bash script in the project. You should:
 
-    1. Examine the project structure to identify the best location for the Dockerfile (typically at the project root)
-    2. Use the create_file tool to save the Dockerfile in a SINGLE new file named "Dockerfile" (without extension)
-    3. If a Dockerfile already exists, you may need to use a different name like "Dockerfile.new" or "Dockerfile.generated"
-    4. After creating the file, return its relative path
+    1. Examine the project structure to identify the best location for the bash script (typically at the project root)
+    2. Use the create_file tool to save the bash script in a SINGLE new file named "prometheus_setup.sh" (with .sh extension, prefix with "prometheus" is needed)
+    3. After creating the file, return its relative path
 
     Tools available:
     - read_file: Read the content of a file
     - create_file: Create a new SINGLE file with specified content
 
-    If create_file fails because there is already a file with that name, use another name.
-    Respond with the created file's relative path.
+
+    If the target file already exists and its name starts with "prometheus", overwrite the original file. 
+    If the file already exists but its name does not start with "prometheus", create a new file by appending "_2" to the filename. 
+    Respond with the relative path of the file that was created or overwritten.
     """
 
     HUMAN_PROMPT = """\
-    Save this Dockerfile in the project:
-    {dockerfile_content}
+    Save this bash script in the project:
+    {env_implement_bash_content}
 
     Current project structure:
     {project_structure}
@@ -80,38 +81,13 @@ class EnvImplementFileNode:
     def format_human_message(self, state: EnvImplementState) -> HumanMessage:
         return HumanMessage(
             self.HUMAN_PROMPT.format(
-                dockerfile_content=get_last_message_content(
+                env_implement_bash_content=get_last_message_content(
                     state["env_implement_write_messages"]
                 ),
                 project_structure=self.kg.get_file_tree(),
             )
         )
 
-    def _extract_file_path_from_messages(self, messages) -> str:
-        """Extract the file path from tool call response messages.
-        
-        Args:
-            messages: List of messages that may contain ToolMessage responses
-            
-        Returns:
-            str: The relative path of the created file, or empty string if not found
-        """
-        for message in messages:
-            # Check if it's a ToolMessage (tool execution result)
-            if hasattr(message, 'content') and hasattr(message, 'tool_call_id'):
-                # Look for patterns like "The file {path} has been created"
-                pattern = r"The file\s+([^\s]+)\s+has been created"
-                match = re.search(pattern, message.content)
-                if match:
-                    return match.group(1)
-                
-                # Look for patterns like "Dockerfile" or "Dockerfile.new" in the content
-                pattern = r"(Dockerfile(?:\.\w+)?)"
-                match = re.search(pattern, message.content)
-                if match:
-                    return match.group(1)
-        
-        return ""
 
     def __call__(self, state: EnvImplementState):
         message_history = [self.system_prompt, self.format_human_message(state)] + state[
@@ -126,14 +102,17 @@ class EnvImplementFileNode:
         
         # Check if there are any tool call responses in the current messages
         # (This happens when we're called after tool execution)
-        current_messages = state.get("env_implement_file_messages", [])
-        file_path = self._extract_file_path_from_messages(current_messages)
+        file_path = ""
+        for tool_call in response.tool_calls:
+            if tool_call['name'] == file_operation.create_file.__name__:
+                file_path = tool_call['args']["relative_path"]
+                break
         
         # If we found a file path, add it to the state
         if file_path:
             # Convert relative path to Path object for dockerfile_path
-            result["dockerfile_path"] = Path(file_path)
-            self._logger.info(f"Extracted Dockerfile path: {file_path}")
+            result["env_implement_bash_path"] = Path(file_path)
+            self._logger.info(f"Extracted bash script path: {file_path}")
         else:
             self._logger.debug("No file path found in current messages")
         
