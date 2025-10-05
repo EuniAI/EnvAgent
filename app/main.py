@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import traceback
 from datetime import datetime
@@ -197,21 +198,28 @@ def reproduce_test(
     container.start_container(use_volume_mapping=True)
     container_git_repo = repository_service.get_repository(container.project_path)
     
+    
+    testsuite_subgraph = TestsuiteSubgraph(
+        model=llm_service.advanced_model,
+        kg=knowledge_graph,
+        local_path=repo_path,
+        neo4j_driver=neo4j_service.neo4j_driver,
+        max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    )
     if debug_mode:
-        testsuiteoutput_states = {'testsuite_command': ['mvn --version', 'java -version', 'git --version', 'find flink-yarn-tests/target -name "*.err" -or -name "*.out"', 'node --version', 'npm run lint', 'python --version', 'pip --version', './dev/lint-python.sh', 'hadoop version', 'docker --version', 'docker compose --version', 'openssl version', 'keytool -help', 'mvn test -Dtest="*TestCodeArchitectureTest*" -DfailIfNoTests=false -Dfast', 'hugo version']}
+        with open(os.path.join(container.project_path, 'prometheus_testsuite_commands.txt'), 'r') as f:
+            testsuite_commands = f.readlines()
     else:
-        testsuite_subgraph = TestsuiteSubgraph(
-            model=llm_service.advanced_model,
-            kg=knowledge_graph,
-            local_path=repo_path,
-            neo4j_driver=neo4j_service.neo4j_driver,
-            max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
-        )
+        testsuite_commands 
         logger.info("Starting testsuite...")
         try:
             testsuiteoutput_states = testsuite_subgraph.invoke(
                 max_refined_query_loop=5,
             )
+            testsuite_commands = testsuiteoutput_states.get('testsuite_command', [])
+            with open(os.path.join(container.project_path, 'prometheus_testsuite_commands.txt'), 'w') as f:
+                for command in testsuite_commands:
+                    f.write(command + '\n')
         except Exception as e:
             logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
@@ -220,6 +228,7 @@ def reproduce_test(
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None
+    
     
     # Initialize the bug reproduce graphfadb9c9ed1c7
     env_implement_subgraph = EnvImplementSubgraph(
@@ -232,21 +241,24 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
-
-    # Invoke the bug reproduction subgraph
-    logger.info("Starting environment implementation...")
-    try:
-        env_output_states = env_implement_subgraph.invoke(
-            recursion_limit=200,
-        )
-    except Exception as e:
-        logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-        # Clear the knowledge graph and repository
-        container.cleanup()
-        git_repo.reset_repository()
-        logger.removeHandler(file_handler)
-        file_handler.close()
-        return False, None, None, None, None
+    if debug_mode:
+        with open(os.path.join(container.project_path, 'prometheus_setup.sh'), 'r') as f:
+            env_setup_bash = f.read()
+    else:
+        # Invoke the bug reproduction subgraph
+        logger.info("Starting environment implementation...")
+        try:
+            env_output_states = env_implement_subgraph.invoke(
+                recursion_limit=200,
+            )
+        except Exception as e:
+            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
+            # Clear the knowledge graph and repository
+            container.cleanup()
+            git_repo.reset_repository()
+            logger.removeHandler(file_handler)
+            file_handler.close()
+            return False, None, None, None, None
 
     
     
