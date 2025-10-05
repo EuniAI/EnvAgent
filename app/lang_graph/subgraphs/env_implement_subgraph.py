@@ -39,6 +39,7 @@ from app.lang_graph.states.env_implement_state import EnvImplementState
 class EnvImplementSubgraph:
     def __init__(
         self,
+        debug_mode: bool,
         advanced_model: BaseChatModel,
         base_model: BaseChatModel,
         container: BaseContainer,
@@ -50,7 +51,7 @@ class EnvImplementSubgraph:
     ):
 
         self.advanced_model = advanced_model
-        env_implement_file_context_message_node = EnvImplementFileContextMessageNode()
+        env_implement_file_context_message_node = EnvImplementFileContextMessageNode(debug_mode)
         file_context_retrieval_subgraph_node = FileContextRetrievalSubgraphNode(
             base_model,
             kg,
@@ -83,21 +84,23 @@ class EnvImplementSubgraph:
 
         workflow = StateGraph(EnvImplementState)
         workflow.add_node("env_implement_file_context_message_node", env_implement_file_context_message_node)
-        # -----------------test---------------------
-        # workflow.add_node("file_context_retrieval_subgraph_node", file_context_retrieval_subgraph_node)
-        # -----------------test---------------------
+        if not debug_mode:
+            workflow.add_node("file_context_retrieval_subgraph_node", file_context_retrieval_subgraph_node)
         workflow.add_node("env_implement_write_message_node", env_implement_write_message_node) # 整合上下文信息，传输指令
         workflow.add_node("env_implement_write_node", env_implement_write_node) # 写dockerfile
         workflow.add_node("env_implement_write_tools", env_implement_write_tools)
         workflow.add_node("env_implement_file_node", env_implement_file_node) # 保存dockerfile
         workflow.add_node("env_implement_file_tools", env_implement_file_tools)
         workflow.add_node("git_diff_node", git_diff_node)
-        # -----------------test---------------------
-        workflow.set_entry_point("env_implement_file_context_message_node")
-        # workflow.add_edge("env_implement_file_context_message_node", "file_context_retrieval_subgraph_node")
-        # workflow.add_edge("file_context_retrieval_subgraph_node", "env_implement_write_message_node")
-        workflow.add_edge("env_implement_file_context_message_node", "env_implement_write_message_node")
-        # -----------------test---------------------
+
+        if debug_mode:
+            workflow.set_entry_point("env_implement_file_context_message_node")
+            workflow.add_edge("env_implement_file_context_message_node", "env_implement_write_message_node")
+        else:
+            workflow.set_entry_point("env_implement_file_context_message_node")
+            workflow.add_edge("env_implement_file_context_message_node", "file_context_retrieval_subgraph_node")
+            workflow.add_edge("file_context_retrieval_subgraph_node", "env_implement_write_message_node")
+        
         workflow.add_edge("env_implement_write_message_node", "env_implement_write_node")
         # Handle patch-writing tool usage or fallback
         workflow.add_conditional_edges(

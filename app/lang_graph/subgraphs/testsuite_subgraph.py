@@ -138,4 +138,4 @@ class TestsuiteSubgraph:
 
         output_state = self.subgraph.invoke(input_state, config)
 
-        return {"testsuite_command": output_state.get("testsuite_command", "")}
+        return output_state

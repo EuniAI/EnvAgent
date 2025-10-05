@@ -54,25 +54,39 @@ def neo4j_data_for_context_generator(
         # Skip if the result has no keys or only contains the "FileNode" key
         if len(search_result_keys) == 1:
             continue
-
+        # Handle preview field which can be either dict or string
+        preview_content = None
+        preview_start_line = None
+        preview_end_line = None
+        
+        preview = search_result.get("preview")
+        if isinstance(preview, dict):
+            preview_content = preview.get("text")
+            preview_start_line = preview.get("start_line")
+            preview_end_line = preview.get("end_line")
+        elif isinstance(preview, str):
+            preview_content = preview
+            preview_start_line = 1  # Default start line for text content
+            preview_end_line = len(preview.splitlines())  # Calculate end line
+        
         context = Context(
             relative_path=search_result["FileNode"]["relative_path"],
             content=(
                 search_result.get("ASTNode", {}).get("text")
                 or search_result.get("TextNode", {}).get("text")
-                or search_result.get("preview", {}).get("text")
                 or search_result.get("SelectedLines", {}).get("text")
+                or preview_content
             ),
             start_line_number=(
                 search_result.get("ASTNode", {}).get("start_line")
                 or search_result.get("SelectedLines", {}).get("start_line")
-                or search_result.get("preview", {}).get("start_line")
+                or preview_start_line
             ),
             end_line_number=search_result.get("ASTNode", {}).get("end_line")
             or search_result.get("SelectedLines", {}).get("end_line")
-            or search_result.get("preview", {}).get("end_line"),
+            or preview_end_line,
         )
-
+        
         yield context
 
 

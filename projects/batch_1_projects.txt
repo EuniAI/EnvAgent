@@ -1,0 +1,5 @@
+react-native https://github.com/facebook/react-native C++ react_image:ExecutionAgent
+
+pandas https://github.com/pandas-dev/pandas Python pandas_image:ExecutionAgent
+
+scikit-learn https://github.com/scikit-learn/scikit-learn Python scikit_image:ExecutionAgent

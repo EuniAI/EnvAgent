@@ -67,17 +67,19 @@ class TestsuiteContextExtractionNode:
         #     context=full_context_str,
         # )
         human_messages = []
-        full_context_artifact = extract_last_tool_messages(state["testsuite_context_provider_messages"])[-1].artifact
-        for context in full_context_artifact:
-            if 'preview' not in context or 'FileNode' not in context:
-                continue
-            relative_path = context['FileNode']['relative_path']
-            preview = context['preview']
-            human_messages.append(HUMAN_MESSAGE.format(
-                original_query=state.get("query", "Find a quick verification command from docs"),
-                context=preview,
-                relative_path=relative_path,
-            ))
+        _extract = extract_last_tool_messages(state["testsuite_context_provider_messages"])
+        if len(_extract) > 0:
+            full_context_artifact = _extract[-1].artifact
+            for context in full_context_artifact:
+                if 'preview' not in context or 'FileNode' not in context:
+                    continue
+                relative_path = context['FileNode']['relative_path']
+                preview = context['preview']
+                human_messages.append(HUMAN_MESSAGE.format(
+                    original_query=state.get("query", "Find a quick verification command from docs"),
+                    context=preview,
+                    relative_path=relative_path,
+                ))
         return human_messages
 
     def __call__(self, state: TestsuiteState):

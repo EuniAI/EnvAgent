@@ -2,7 +2,8 @@ import json
 import threading
 import traceback
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Any
+from pathlib import PosixPath
 
 import click
 from datasets import load_dataset
@@ -24,6 +25,40 @@ from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
+debug_mode = False
+
+
+
+def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Serialize states dictionary to be JSON serializable.
+    Handles special types like PosixPath, Context objects, etc.
+    """
+    serialized = {}
+    for key, value in states.items():
+        if isinstance(value, PosixPath):
+            serialized[key] = str(value)
+        elif isinstance(value, list):
+            serialized[key] = []
+            for item in value:
+                if hasattr(item, '__dict__'):  # Handle objects with attributes
+                    serialized[key].append({
+                        'type': type(item).__name__,
+                        'content': str(item) if hasattr(item, 'content') else str(item),
+                        'relative_path': getattr(item, 'relative_path', None),
+                        'start_line_number': getattr(item, 'start_line_number', None),
+                        'end_line_number': getattr(item, 'end_line_number', None)
+                    })
+                else:
+                    serialized[key].append(item)
+        elif hasattr(value, '__dict__'):  # Handle objects with attributes
+            serialized[key] = {
+                'type': type(value).__name__,
+                'content': str(value) if hasattr(value, 'content') else str(value)
+            }
+        else:
+            serialized[key] = value
+    return serialized
 
 
 def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
@@ -51,32 +86,32 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                     
                 # 按空格分割，但URL可能包含空格，需要特殊处理
                 parts = line.split()
-                if len(parts) < 4:
-                    logger.warning(f"第{line_num}行格式不正确，跳过: {line}")
-                    continue
+                # if len(parts) < 4:
+                #     logger.warning(f"第{line_num}行格式不正确，跳过: {line}")
+                #     continue
                 
                 # 前三个部分分别是：项目名、仓库URL、编程语言
                 project_name = parts[0]
-                language = parts[-2]  # 倒数第二个是编程语言
-                image_full = parts[-1]  # 最后一个是镜像名:标签
+                # language = parts[-2]  # 倒数第二个是编程语言
+                # image_full = parts[-1]  # 最后一个是镜像名:标签
                 
                 # 处理镜像名和标签
-                if ':' in image_full:
-                    image_name, tag = image_full.rsplit(':', 1)
-                else:
-                    image_name = image_full
-                    tag = 'latest'
+                # if ':' in image_full:
+                #     image_name, tag = image_full.rsplit(':', 1)
+                # else:
+                #     image_name = image_full
+                #     tag = 'latest'
                 
                 # 仓库URL是中间部分，需要重新组合（因为URL可能包含空格）
-                repo_url_parts = parts[1:-2]
+                repo_url_parts = parts[1:]#parts[1:-2]
                 repo_url = ' '.join(repo_url_parts)
                 
                 project_info = {
                     'name': project_name,
                     'repo_url': repo_url,
-                    'language': language,
-                    'image': image_name,
-                    'tag': tag
+                    # 'language': language,
+                    # 'image': image_name,
+                    # 'tag': tag
                 }
                 projects.append(project_info)
                 
@@ -128,11 +163,11 @@ def reproduce_test(
     github_token: str,
     # commit_id: str = None,
     # dockerfile_content: str = None,
-    image_name: str = None,
+    # image_name: str = None,
     # build_commands: Sequence[str] = None,
     # test_commands: Sequence[str] = None,
     workdir: str = None,
-) -> tuple[bool, None, None, None] | tuple[bool, str, str, str]:
+) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
 
     # if dockerfile_content or image_name:
     if workdir is None:
@@ -162,32 +197,33 @@ def reproduce_test(
     container.start_container(use_volume_mapping=True)
     container_git_repo = repository_service.get_repository(container.project_path)
     
-
-    # testsuite_subgraph = TestsuiteSubgraph(
-    #     model=llm_service.advanced_model,
-    #     kg=knowledge_graph,
-    #     local_path=repo_path,
-    #     neo4j_driver=neo4j_service.neo4j_driver,
-    #     max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
-    # )
-    # logger.info("Starting testsuite...")
-    # try:
-    #     testsuiteoutput_states = testsuite_subgraph.invoke(
-    #         max_refined_query_loop=5,
-    #     )
-    # except Exception as e:
-    #     logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-    #     # Clear the knowledge graph and repository
-    #     container.cleanup()
-    #     git_repo.reset_repository()
-    #     logger.removeHandler(file_handler)
-    #     file_handler.close()
-    #     return False, None, None, None
-
-    testsuiteoutput_states = {'testsuite_command': ['mvn --version', 'java -version', 'git --version', 'find flink-yarn-tests/target -name "*.err" -or -name "*.out"', 'node --version', 'npm run lint', 'python --version', 'pip --version', './dev/lint-python.sh', 'hadoop version', 'docker --version', 'docker compose --version', 'openssl version', 'keytool -help', 'mvn test -Dtest="*TestCodeArchitectureTest*" -DfailIfNoTests=false -Dfast', 'hugo version']}
-
+    if debug_mode:
+        testsuiteoutput_states = {'testsuite_command': ['mvn --version', 'java -version', 'git --version', 'find flink-yarn-tests/target -name "*.err" -or -name "*.out"', 'node --version', 'npm run lint', 'python --version', 'pip --version', './dev/lint-python.sh', 'hadoop version', 'docker --version', 'docker compose --version', 'openssl version', 'keytool -help', 'mvn test -Dtest="*TestCodeArchitectureTest*" -DfailIfNoTests=false -Dfast', 'hugo version']}
+    else:
+        testsuite_subgraph = TestsuiteSubgraph(
+            model=llm_service.advanced_model,
+            kg=knowledge_graph,
+            local_path=repo_path,
+            neo4j_driver=neo4j_service.neo4j_driver,
+            max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
+        )
+        logger.info("Starting testsuite...")
+        try:
+            testsuiteoutput_states = testsuite_subgraph.invoke(
+                max_refined_query_loop=5,
+            )
+        except Exception as e:
+            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+            # Clear the knowledge graph and repository
+            container.cleanup()
+            git_repo.reset_repository()
+            logger.removeHandler(file_handler)
+            file_handler.close()
+            return False, None, None, None
+    
     # Initialize the bug reproduce graphfadb9c9ed1c7
     env_implement_subgraph = EnvImplementSubgraph(
+        debug_mode=debug_mode,
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
         container=container,
@@ -210,33 +246,51 @@ def reproduce_test(
         git_repo.reset_repository()
         logger.removeHandler(file_handler)
         file_handler.close()
-        return False, None, None, None
+        return False, None, None, None, None
+
+    
+    
+    # execute_subgraph = ExecuteSubgraph(
+    #     advanced_model=llm_service.advanced_model,
+    #     base_model=llm_service.base_model,
+    #     container=container,
+    #     kg=knowledge_graph,
+    #     git_repo=container_git_repo,
+    #     neo4j_driver=neo4j_service.neo4j_driver,
+    #     max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    # )
         
-    if is_new_repository:
-        repository_service.clean_repository(github_url)
-        logger.info("Cleaned up new repository resources")
-    else:
-        logger.info("Keeping existing repository resources for reuse")
+    # if is_new_repository:
+    #     repository_service.clean_repository(github_url)
+    #     logger.info("Cleaned up new repository resources")
+    # else:
+    #     logger.info("Keeping existing repository resources for reuse")
     
-    # Get generated files from container (including Dockerfile)
-    generated_dockerfile = container.get_dockerfile_from_container()
-    if generated_dockerfile:
-        logger.info(f"Generated Dockerfile found at: {generated_dockerfile}")
-        # Read the content of the generated Dockerfile
-        try:
-            with open(generated_dockerfile, 'r', encoding='utf-8') as f:
-                generated_dockerfile_content = f.read()
-            logger.info(f"Generated Dockerfile content:\n{generated_dockerfile_content}")
-            # Update the output states with the actual generated file
-            output_states['dockerfile_path'] = generated_dockerfile
-            output_states['dockerfile_content'] = generated_dockerfile_content
-        except Exception as e:
-            logger.error(f"Error reading generated Dockerfile: {e}")
+    # # Get generated files from container (including Dockerfile)
+    # generated_dockerfile = container.get_dockerfile_from_container()
+    # if generated_dockerfile:
+    #     logger.info(f"Generated Dockerfile found at: {generated_dockerfile}")
+    #     # Read the content of the generated Dockerfile
+    #     try:
+    #         with open(generated_dockerfile, 'r', encoding='utf-8') as f:
+    #             generated_dockerfile_content = f.read()
+    #         logger.info(f"Generated Dockerfile content:\n{generated_dockerfile_content}")
+    #         # Update the output states with the actual generated file
+    #         env_output_states['bashfile_path'] = generated_dockerfile
+    #         env_output_states['bashfile_content'] = generated_dockerfile_content
+    #     except Exception as e:
+    #         logger.error(f"Error reading generated Bashfile: {e}")
     
-    logger.info(f"context files: {output_states['env_implement_file_context']}")
-    logger.info(f"dockerfile path: {output_states['dockerfile_path']}")
-    logger.info(f"dockerfile content: {output_states['dockerfile_content']}")
-    return output_states
+    # logger.info(f"context files: {env_output_states['env_implement_file_context']}")
+    # logger.info(f"bashfile path: {env_output_states['bashfile_path']}")
+    # logger.info(f"bashfile content: {env_output_states['bashfile_content']}")
+    
+    # Get container information
+    container_info = container.print_container_info()
+    
+    # Return the states for logging
+    return True, testsuiteoutput_states, env_output_states, container_git_repo.playground_path, container_info
+
 
 @click.command()
 @click.option(
@@ -254,7 +308,7 @@ def reproduce_test(
     "--file",
     "-f",
     help="File to save the predictions or continue patch generating.",
-    default=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+    default=f"projects/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
 )
 def main(
     dataset_file_path: str,
@@ -275,7 +329,7 @@ def main(
 
     for project in tqdm(projects):
         # 记录当前处理的项目信息
-        logger.info(f"开始处理项目: {project['name']} ({project['language']})")
+        logger.info(f"开始处理项目: {project['name']} ")
         
         # Get Issue information
         # repo_prefix = github_issue["repo"].split("/")[0]
@@ -288,19 +342,41 @@ def main(
         # issue_body = "\n".join(problem_statement_lines[1:])
 
         github_url = project["repo_url"]
-        language = project["language"]
-        image_name = project["image"]
+        # language = project["language"]
+        # image_name = project["image"]
 
         # Reproduce the bug
-        output_states = reproduce_test(github_url, github_token, image_name, "/testbed")
+        success, testsuite_states, env_states, playground_path, container_info = reproduce_test(github_url, github_token, "/testbed")
         
-        # predictions[github_ds["instance_id"]] = {
-        #     "reproduced_bug": reproduced_bug,
-        #     "reproduced_bug_file": str(reproduced_bug_file),
-        #     "reproduced_bug_commands": reproduced_bug_commands,
-        #     "reproduced_bug_patch": reproduced_bug_patch,
-        # }
+        # Create project result with all states
+        project_result = {
+            "project_name": project['name'],
+            # "project_language": project['language'],
+            "project_repo_url": project['repo_url'],
+            # "project_image": project['image'],
+            "success": success,
+            "playground_path": str(playground_path) if playground_path else None,
+            "container_info": container_info,
+            "testsuite_states": serialize_states_for_json(testsuite_states) if testsuite_states else None,
+            "env_states": serialize_states_for_json(env_states) if env_states else None,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Add to predictions
+        predictions[project['name']] = project_result
+        
+        # Log the states immediately
+        logger.info(f"Project {project['name']} completed successfully: {success}")
+        if playground_path:
+            logger.info(f"Playground path: {playground_path}")
+        if container_info:
+            logger.info(f"Container info: {container_info}")
+        if testsuite_states:
+            logger.info(f"Testsuite states keys: {list(testsuite_states.keys())}")
+        if env_states:
+            logger.info(f"Environment states keys: {list(env_states.keys())}")
 
+        # Continuously save to JSON file
         with open(file, "w", encoding="utf-8") as f:
             json.dump(predictions, f, indent=4, ensure_ascii=False)
 

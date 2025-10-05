@@ -1,0 +1,6 @@
+sqlfluff https://github.com/sqlfluff/sqlfluff
+pvlib-python https://github.com/pvlib/pvlib-python
+astroid https://github.com/pylint-dev/astroid
+pydicom https://github.com/pydicom/pydicom
+marshmallow https://github.com/marshmallow-code/marshmallow
+pyvista https://github.com/pyvista/pyvista
