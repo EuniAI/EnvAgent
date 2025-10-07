@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+from tkinter import TRUE
 import traceback
 from datetime import datetime
 from typing import Dict, List, Any
@@ -26,7 +27,7 @@ from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = False
+debug_mode = TRUE
 
 
 
@@ -198,7 +199,7 @@ def reproduce_test(
     container.start_container(use_volume_mapping=True)
     container_git_repo = repository_service.get_repository(container.project_path)
     
-    
+    # Initialize the Testsuite graph
     testsuite_subgraph = TestsuiteSubgraph(
         model=llm_service.advanced_model,
         kg=knowledge_graph,
@@ -206,11 +207,19 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result = settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
-    if debug_mode:
-        with open(os.path.join(container.project_path, 'prometheus_testsuite_commands.txt'), 'r') as f:
-            testsuite_commands = f.readlines()
-    else:
-        testsuite_commands 
+    # Initialize the Env Implementation graph
+    env_implement_subgraph = EnvImplementSubgraph(
+        debug_mode=debug_mode,
+        advanced_model=llm_service.advanced_model,
+        base_model=llm_service.base_model,
+        container=container,
+        kg=knowledge_graph,
+        git_repo=container_git_repo,
+        neo4j_driver=neo4j_service.neo4j_driver,
+        max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
+    )
+    if not debug_mode:
+        testsuite_commands = []
         logger.info("Starting testsuite...")
         try:
             testsuiteoutput_states = testsuite_subgraph.invoke(
@@ -228,24 +237,7 @@ def reproduce_test(
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None
-    
-    
-    # Initialize the bug reproduce graphfadb9c9ed1c7
-    env_implement_subgraph = EnvImplementSubgraph(
-        debug_mode=debug_mode,
-        advanced_model=llm_service.advanced_model,
-        base_model=llm_service.base_model,
-        container=container,
-        kg=knowledge_graph,
-        git_repo=container_git_repo,
-        neo4j_driver=neo4j_service.neo4j_driver,
-        max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
-    )
-    if debug_mode:
-        with open(os.path.join(container.project_path, 'prometheus_setup.sh'), 'r') as f:
-            env_setup_bash = f.read()
-    else:
-        # Invoke the bug reproduction subgraph
+        
         logger.info("Starting environment implementation...")
         try:
             env_output_states = env_implement_subgraph.invoke(
@@ -259,43 +251,42 @@ def reproduce_test(
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None, None
+    else:
+        with open(os.path.join(container.project_path, 'prometheus_testsuite_commands.txt'), 'r') as f:
+            testsuite_commands = f.readlines()
+        with open(os.path.join(container.project_path, 'prometheus_setup.sh'), 'r') as f:
+            env_setup_bash = f.read()
+        testsuiteoutput_states = {}
+        env_output_states = {}
 
+    # 已经获取了env命令和testsuite命令，接下来要做的事情就是执行env命令。
     
-    
-    # execute_subgraph = ExecuteSubgraph(
-    #     advanced_model=llm_service.advanced_model,
-    #     base_model=llm_service.base_model,
-    #     container=container,
-    #     kg=knowledge_graph,
-    #     git_repo=container_git_repo,
-    #     neo4j_driver=neo4j_service.neo4j_driver,
-    #     max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
-    # )
-        
-    # if is_new_repository:
-    #     repository_service.clean_repository(github_url)
-    #     logger.info("Cleaned up new repository resources")
-    # else:
-    #     logger.info("Keeping existing repository resources for reuse")
-    
-    # # Get generated files from container (including Dockerfile)
-    # generated_dockerfile = container.get_dockerfile_from_container()
-    # if generated_dockerfile:
-    #     logger.info(f"Generated Dockerfile found at: {generated_dockerfile}")
-    #     # Read the content of the generated Dockerfile
-    #     try:
-    #         with open(generated_dockerfile, 'r', encoding='utf-8') as f:
-    #             generated_dockerfile_content = f.read()
-    #         logger.info(f"Generated Dockerfile content:\n{generated_dockerfile_content}")
-    #         # Update the output states with the actual generated file
-    #         env_output_states['bashfile_path'] = generated_dockerfile
-    #         env_output_states['bashfile_content'] = generated_dockerfile_content
-    #     except Exception as e:
-    #         logger.error(f"Error reading generated Bashfile: {e}")
-    
-    # logger.info(f"context files: {env_output_states['env_implement_file_context']}")
-    # logger.info(f"bashfile path: {env_output_states['bashfile_path']}")
-    # logger.info(f"bashfile content: {env_output_states['bashfile_content']}")
+    # 执行环境设置命令
+    logger.info("Start executing the Environment Settings command...")
+    try:
+        # 执行环境设置脚本
+        result = container.execute_command_with_exit_code("bash " + os.path.join(container.workdir, 'prometheus_setup.sh'))
+        if result.returncode == 0:
+            logger.info("环境设置命令执行成功")
+        else:
+            logger.warning(f"环境设置命令执行失败，返回码: {result.returncode}")
+            logger.warning(f"错误输出: {result.stderr}")
+    except Exception as e:
+        logger.error(f"执行环境设置命令时发生错误: {str(e)}")
+
+    for testsuite_command in testsuite_commands:
+        testsuite_command = testsuite_command.strip()
+        if not testsuite_command:  # 跳过空行
+            continue
+            
+        testsuite_result = container.execute_command_with_exit_code(testsuite_command)
+        if testsuite_result.returncode == 0:
+            logger.info(f"Testsuite command '{testsuite_command}' executed successfully")
+        else:
+            logger.warning(f"Testsuite command '{testsuite_command}' executed failed, return code: {testsuite_result.returncode}")
+            logger.warning(f"Error output: {testsuite_result.stderr}")
+
+ 
     
     # Get container information
     container_info = container.print_container_info()

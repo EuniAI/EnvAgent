@@ -10,6 +10,14 @@ from typing import Optional, Sequence
 import docker  # Docker SDK for Python
 from app.utils.logger_manager import get_thread_logger
 
+
+class CommandResult:
+    def __init__(self, stdout, stderr, returncode):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
 class BaseContainer(ABC):
     """An abstract base class for managing Docker containers with file synchronization capabilities.
 
@@ -276,10 +284,10 @@ class BaseContainer(ABC):
             str: Output of the command as a string.
         """
         timeout_msg = f"""
-*******************************************************************************
-{command} timeout after {self.timeout} seconds
-*******************************************************************************
-"""
+        *******************************************************************************
+        {command} timeout after {self.timeout} seconds
+        *******************************************************************************
+        """
         timeout_command = f"timeout -k 5 {self.timeout}s {command}"
         command = f'/bin/bash -l -c "{timeout_command}"'
         self._logger.debug(f"Running command in container: {command}")
@@ -291,6 +299,26 @@ class BaseContainer(ABC):
 
         self._logger.debug(f"Command output:\n{exec_result_str}")
         return exec_result_str
+
+    def execute_command_with_exit_code(self, command: str):
+        """Execute a command in the running container and return both output and exit code.
+
+        Args:
+            command: Command to execute in the container.
+
+        Returns:
+            object: An object with stdout, stderr, and returncode attributes.
+        """
+        # 直接使用bash -c执行，不使用timeout
+        wrapped_command = f'/bin/bash -l -c "{command}"'
+        self._logger.debug(f"Running command in container: {wrapped_command}")
+        exec_result = self.container.exec_run(wrapped_command, workdir=self.workdir)
+        exec_result_str = exec_result.output.decode("utf-8")
+
+        self._logger.debug(f"Command output:\n{exec_result_str}")
+        
+        return CommandResult(exec_result_str, "", exec_result.exit_code)
+
 
     def restart_container(self, use_volume_mapping: bool = False):
         """Restart the container with optional volume mapping.
