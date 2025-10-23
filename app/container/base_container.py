@@ -168,11 +168,13 @@ class BaseContainer(ABC):
         short_id = self.get_container_short_id()
         container_name = self.get_container_name()
         exec_command = self.get_docker_exec_command()
+        mapping_project_path = self.project_path
         
         self._logger.info(f"Container ID: {container_id}")
         self._logger.info(f"Container Short ID: {short_id}")
         self._logger.info(f"Container Name: {container_name}")
         self._logger.info(f"To enter container, run: {exec_command}")
+        self._logger.info(f"Project path: {mapping_project_path}")
 
     def get_generated_files(self, file_pattern: str = "*") -> list[Path]:
         """Get files generated in the container that are now available on the host.

@@ -1,0 +1,20 @@
+angular https://github.com/angular/angular
+material-ui https://github.com/mui/material-ui
+tailwindcss https://github.com/tailwindlabs/tailwindcss
+code-server https://github.com/coder/code-server
+AutoGPT https://github.com/Significant-Gravitas/AutoGPT
+transformers https://github.com/huggingface/transformers
+langchain https://github.com/langchain-ai/langchain
+yt-dlp https://github.com/yt-dlp/yt-dlp
+keras https://github.com/keras-team/keras
+gson https://github.com/google/gson /tmp/tmpg8dtpb4m/gson
+rocketmq https://github.com/apache/rocketmq /tmp/tmp5syu3z2r/rocketmq
+dubbo https://github.com/apache/dubbo /tmp/tmpdxhczkbv/dubbo
+apollo https://github.com/apolloconfig/apollo /tmp/tmpju11a7g_/apollo
+guava https://github.com/google/guava /tmp/tmpm4pdhv89/guava
+trino https://github.com/trinodb/trino
+three.js https://github.com/mrdoob/three.js /tmp/tmpu4jbjj80/three
+svelte https://github.com/sveltejs/svelte /tmp/tmpbobziwix/svelte
+prettier https://github.com/prettier/prettier /tmp/tmpusvu4sru/prettier
+vscode https://github.com/microsoft/vscode /tmp/tmpdw0cccfg/vscode
+serverless https://github.com/serverless/serverless /tmp/tmpbnndb0ym/serverless

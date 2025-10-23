@@ -28,6 +28,15 @@ class EnvImplementState(TypedDict):
     env_implement_bash_path: Path  # File path where the Dockerfile will be saved
     testsuites_failure_log: str  # Error logs if testsuites generation failed
 
+
+    #-------repair related-------
+    env_implement_command: str  # The command for environment implementation
+    env_implement_result: str  # The result of environment implementation
+    test_command: str  # The command for test
+    test_result: str  # The result of test
+    env_repair_context_query: str  # The refined query for environment repair context
+    env_repair_command: str  # The command for environment repair
+
     # # Auto-configuration files related
     # config_files: Sequence[Mapping[str, str]]  # Mapping of filename -> content for configuration files
     # config_files_generated: bool  # Flag indicating if configuration files were successfully generated

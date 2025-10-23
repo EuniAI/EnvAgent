@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     OPENAI_FORMAT_BASE_URL: str
     OPENAI_FORMAT_API_KEY: str
 
+    TAVILY_API_KEY: str
+
     # Model parameters
     MAX_INPUT_TOKENS: int
     TEMPERATURE: float

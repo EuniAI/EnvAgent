@@ -22,13 +22,13 @@ from app.services.repository_service import RepositoryService
 from app.utils.logger_manager import get_thread_logger
 from app.lang_graph.subgraphs.env_implement_subgraph import EnvImplementSubgraph
 from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
-# from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
+from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
 # SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
 
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = True
+debug_mode = False
 
 
 
@@ -219,15 +219,15 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
-    # env_repair_subgraph=EnvRepairSubgraph(
-    #     debug_mode=debug_mode,
-    #     advanced_model=llm_service.advanced_model,
-    #     base_model=llm_service.base_model,
-    #     container=container,
-    #     kg=knowledge_graph,
-    #     git_repo=container_git_repo,
-    #     neo4j_driver=neo4j_service.neo4j_driver,
-    # )
+    env_repair_subgraph=EnvRepairSubgraph(
+        debug_mode=debug_mode,
+        advanced_model=llm_service.advanced_model,
+        base_model=llm_service.base_model,
+        container=container,
+        kg=knowledge_graph,
+        git_repo=container_git_repo,
+        neo4j_driver=neo4j_service.neo4j_driver,
+    )
     if not debug_mode:
         testsuite_commands = []
         logger.info("Starting testsuite...")
@@ -275,56 +275,72 @@ def reproduce_test(
     # 已经获取了env命令和testsuite命令，接下来要做的事情就是执行env命令。
     
     # 执行环境设置命令
-    """
-    todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的命令，然后执行。
-    """
-    logger.info("Start executing the Environment Settings command...")
-    try:
-        # 执行环境设置脚本
-        env_setup_output = container.execute_command_with_exit_code("bash " + os.path.join(container.workdir, 'prometheus_setup.sh'))
-        if env_setup_output.returncode == 0:
-            logger.info("环境设置命令执行成功")
-        else:
-            logger.warning(f"环境设置命令执行失败，返回码: {env_setup_output.returncode}")
-            logger.warning(f"错误输出: {env_setup_output.stderr}")
-    except Exception as e:
-        logger.error(f"执行环境设置命令时发生错误: {str(e)}")
+    # """
+    # todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的命令，然后执行。
+    # """
+    # logger.info("Start executing the Environment Settings command...")
+    # try:
+    #     # 执行环境设置脚本
+    #     env_setup_output = container.execute_command_with_exit_code("bash " + os.path.join(container.workdir, 'prometheus_setup.sh'))
+    #     if env_setup_output.returncode == 0:
+    #         logger.info("环境设置命令执行成功")
+    #     else:
+    #         logger.warning(f"环境设置命令执行失败，返回码: {env_setup_output.returncode}")
+    #         logger.warning(f"错误输出: {env_setup_output.stderr}")
+    # except Exception as e:
+    #     logger.error(f"执行环境设置命令时发生错误: {str(e)}")
 
 
-    """
-    todo: 将testsuite中的命令全部转换成 带环境激活的
-    """
+    # """
+    # todo: 将testsuite中的命令全部转换成 带环境激活的
+    # """
     
-    # 统一文档输出：为每个测试命令生成一个文档
-    output_docs_dir = os.path.join(container.project_path, 'prometheus_testsuite_docs')
-    os.makedirs(output_docs_dir, exist_ok=True)
+    # # 统一文档输出：为每个测试命令生成一个文档
+    # output_docs_dir = os.path.join(container.project_path, 'prometheus_testsuite_docs')
+    # os.makedirs(output_docs_dir, exist_ok=True)
 
-    for idx, testsuite_command in enumerate(testsuite_commands, start=1):
-        testsuite_command = testsuite_command.strip()
-        if not testsuite_command:  # 跳过空行
-            continue
+    # for idx, testsuite_command in enumerate(testsuite_commands, start=1):
+    #     testsuite_command = testsuite_command.strip()
+    #     if not testsuite_command:  # 跳过空行
+    #         continue
             
-        testsuite_result = container.execute_command_with_exit_code(testsuite_command)
-        if testsuite_result.returncode == 0:
-            logger.info(f"Testsuite command '{testsuite_command}' executed successfully")
-        else:
-            logger.warning(f"Testsuite command '{testsuite_command}' executed failed, return code: {testsuite_result.returncode}")
-            logger.warning(f"Error output: {testsuite_result.stderr}")
-        # 为该测试命令输出一个统一文档（测试输出暂留空）
-        try:
-            doc = {
-                "testsuite_command": testsuite_command,
-                "testsuite_output": testsuite_result.stdout,
-                "env_setup_command": "bash " + os.path.join(container.workdir, 'prometheus_setup.sh'),
-                "env_setup_output": env_setup_output.stdout,
-            }
-            doc_path = os.path.join(output_docs_dir, f"prometheus_testsuite_doc_{idx:03d}.json")
-            with open(doc_path, 'w', encoding='utf-8') as f:
-                json.dump(doc, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"写入测试命令文档失败: {e}")
+    #     testsuite_result = container.execute_command_with_exit_code(testsuite_command)
+    #     if testsuite_result.returncode == 0:
+    #         logger.info(f"Testsuite command '{testsuite_command}' executed successfully")
+    #     else:
+    #         logger.warning(f"Testsuite command '{testsuite_command}' executed failed, return code: {testsuite_result.returncode}")
+    #         logger.warning(f"Error output: {testsuite_result.stderr}")
+    #     # 为该测试命令输出一个统一文档（测试输出暂留空）
+    #     try:
+    #         doc = {
+    #             "testsuite_command": testsuite_command,
+    #             "testsuite_output": testsuite_result.stdout,
+    #             "env_setup_command": "bash " + os.path.join(container.workdir, 'prometheus_setup.sh'),
+    #             "env_setup_output": env_setup_output.stdout,
+    #         }
+    #         doc_path = os.path.join(output_docs_dir, f"prometheus_testsuite_doc_{idx:03d}.json")
+    #         with open(doc_path, 'w', encoding='utf-8') as f:
+    #             json.dump(doc, f, ensure_ascii=False, indent=2)
+    #     except Exception as e:
+    #         logger.error(f"写入测试命令文档失败: {e}")
 
- 
+    #     logger.info("Starting environment repair...")
+    #     if testsuite_result.returncode != 0:
+    #         try:
+    #             env_repair_output_states = env_repair_subgraph.invoke(
+    #                 env_implement_command=doc["env_setup_command"],
+    #                 env_implement_result=doc["env_setup_output"],
+    #                 test_command=doc["testsuite_command"],
+    #                 test_result=doc["testsuite_output"],
+    #             )
+    #         except Exception as e:
+    #             logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+    #             # Clear the knowledge graph and repository
+    #             container.cleanup()
+    #             git_repo.reset_repository()
+    #             logger.removeHandler(file_handler)
+    #             file_handler.close()
+    #             return False, None, None, None, None
     
     # Get container information
     container_info = container.print_container_info()
