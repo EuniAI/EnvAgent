@@ -1,78 +1,180 @@
-# Prometheus Bug Reproduction Agent
+## Prometheus Bug Reproduction Agent
 
-This agent is used for automatically reproducing software bugs by utilizing large language models (LLMs) and knowledge graphs to analyze issues in GitHub repositories and attempt to reproduce them.
-
-## Features
-
-* Automatically clones GitHub code repositories
-* Builds and stores code knowledge graphs
-* Uses LLMs to analyze issue descriptions
-* Reproduces bugs in a containerized environment
-* Generates bug reproduction files, commands, and patches
-* Supports batch testing with the SWE-bench dataset
+An automated bug reproduction research agent powered by large language models (LLMs) and a code knowledge graph. It clones target repositories, builds a knowledge graph, analyzes and attempts to reproduce issues inside a container, and outputs reproduction commands and results.
 
 ## Requirements
 
-* Python 3.8+
-* Neo4j database
-* Docker
-* Git
+- Python 3.11+
+- Neo4j 5.x (local or remote)
+- Docker
+- Git
 
-## 📦 Setup
-1. ### Install dependencies:
+## Installation
 
-   ```bash
-   pip install hatchling
-   pip install .
-   ```
-2. ### Create the working directory to store logs and cloned repositories:
+- Method 1 (recommended): pinned dependencies via requirements.txt
 
-   ```bash
-   mkdir working_dir
-   ```
+```bash
+pip install -r requirements.txt
+```
+
+- Method 2: install via pyproject.toml
+
+```bash
+pip install hatchling
+pip install .
+```
+
+- Create a working directory (for logs and cloned repositories cache):
+
+```bash
+mkdir -p working_dir
+```
 
 ## Configuration
 
-Before use, you need to set the following environment variables or configuration files:
+Copy the example env file and adjust as needed:
 
-* NEO4J related configurations (URI, username, password)
-* LLM related API keys (OpenAI, Anthropic, Gemini, etc.)
-* Working directory path
-* GitHub access token (for private repositories)
+```bash
+cp example.env .env
+```
+
+Key settings (from example.env):
+
+- PROMETHEUS_NEO4J_URI, e.g. `bolt://localhost:7687`
+- PROMETHEUS_NEO4J_USERNAME / PROMETHEUS_NEO4J_PASSWORD
+- PROMETHEUS_WORKING_DIRECTORY, e.g. `working_dir/`
+- PROMETHEUS_OPENAI_FORMAT_API_KEY and other LLM keys (Anthropic/Gemini as needed)
+
+If you need to access private repositories, prepare a GitHub token:
+
+```bash
+export GITHUB_TOKEN="github_pat_xxxx"
+```
+
+## Docker prerequisites
+
+Before running, ensure Docker is available on the host and start the following services.
+
+### Neo4j (required)
+
+Default ports: HTTP 7474, Bolt 7687.
+
+Minimal startup (ports consistent with `example.env`):
+
+```bash
+docker run -d \
+  --name neo4j_prometheus \
+  -p 7474:7474 \
+  -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/password \
+  neo4j:5
+```
+
+Recommended (enable APOC and set memory):
+
+```bash
+docker run -d \
+  --name neo4j_prometheus \
+  -p 7474:7474 \
+  -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/password \
+  -e NEO4J_PLUGINS='["apoc"]' \
+  -e NEO4J_dbms_memory_heap_initial__size=2G \
+  -e NEO4J_dbms_memory_heap_max__size=4G \
+  -e NEO4J_dbms_memory_pagecache_size=2G \
+  neo4j:5
+```
+
+If you map different host ports (e.g., `7475:7474`, `7688:7687`), update `PROMETHEUS_NEO4J_URI` in `.env` accordingly, e.g., `bolt://localhost:7688`.
+
+### Postgres (optional, for checkpoint storage)
+
+Default port: 5432.
+
+```bash
+docker run -d \
+  --name postgres_prometheus \
+  -p 5432:5432 \
+  -e POSTGRES_USER=app2_user \
+  -e POSTGRES_PASSWORD=app2_password \
+  -e POSTGRES_DB=app2_db \
+  postgres:16
+```
+
+You can skip this if you don't use Postgres checkpoints.
 
 ## Usage
 
-### Command-line execution
+Command-line execution (required argument: `--dataset_file_path`):
 
 ```bash
-python -m app.main --dataset_name="your_dataset" --github_token="your_token"
+python -m app.main --dataset_file_path projects/swe-polybench-verified.txt --github_token "$GITHUB_TOKEN"
 ```
 
-### Parameter Description
+Optional arguments:
 
-* `--dataset_name`, `-d`: SWE-bench dataset name (required)
-* `--github_token`, `-g`: GitHub access token (optional)
-* `--file`, `-f`: File to save the prediction results (defaults to `predictions_XXX.json` with a timestamp)
+- --file, -f: output path for predictions, defaults to `projects/predictions_YYYYmmdd_HHMMSS.json`
+
+Argument description:
+
+- --dataset_file_path, -d: path to the project list file (required). Each line should look like `<name> <git_https_url>`. Lines starting with `#` are treated as comments.
+- --github_token, -g: token for accessing private repositories (optional).
 
 ## Workflow
 
-1. Load test cases from the SWE-bench dataset
-2. Clone the GitHub repository locally
-3. Build the code knowledge graph
-4. Initialize the container environment (user-defined or generic container)
-5. Call the bug reproduction subgraph for analysis and reproduction
-6. Save the reproduction results (success/failure, related files, commands, and patches)
+1. Parse the project list file and iterate projects
+2. Clone/update repositories and build the knowledge graph
+3. Start a Docker container (with volume mapping for real-time sync)
+4. Auto-generate testsuite commands and attempt to run them
+5. Auto-generate/execute environment setup commands to fix env/dependency issues
+6. Record and export reproduction results and related information
 
-## Project Structure
+## Project structure
 
-* `app/main.py`: Main program entry
-* `app/configuration/`: Configuration-related code
-* `app/container/`: Docker container management code
-* `app/lang_graph/`: Language graph-related code
-* `app/services/`: Various service implementations (knowledge graph, repository, LLM, etc.)
+- `app/main.py`: CLI entry (arguments: `--dataset_file_path`/`--github_token`/`--file`)
+- `app/configuration/`: configuration loading
+- `app/container/`: container management
+- `app/lang_graph/`: language graphs/subgraphs
+- `app/services/`: knowledge graph, repository, LLM, Neo4j services
+- `projects/`: sample project lists and outputs
 
 ## Notes
 
-* Ensure Docker service is running
-* For private repositories, provide a valid GitHub token
-* Large repositories may require more time and memory for analysis
+- Ensure Docker is running and you have permission to build images
+- Ensure Neo4j is reachable and `PROMETHEUS_NEO4J_*` are set correctly
+- Building the knowledge graph for large repos may take time and memory
+
+## Example
+
+```bash
+export GITHUB_TOKEN='github_pat_xxxx'
+python3 -m app.main \
+  --dataset_file_path projects/swe-polybench-verified.txt \
+  --github_token "$GITHUB_TOKEN"
+```
+
+## Run output and files inside the container
+
+After the program starts, a general-purpose build container is launched and it prints the command to enter the container, for example:
+
+```bash
+To enter container, run: docker exec -it <container_short_id> /bin/bash
+```
+
+Inside the container (workdir `/app`), two key files are generated:
+
+- `/app/prometheus_setup.sh`: initial environment setup script auto-generated by EnvAgent
+- `/app/prometheus_testsuite_commands.txt`: the extracted/generated testsuite command list (one command per line)
+
+Example: enter the container and run the environment script:
+
+```bash
+# Enter the container (use the command printed in logs)
+docker exec -it <container_short_id> /bin/bash
+
+# Run the environment setup script (idempotent/re-runnable)
+bash /app/prometheus_setup.sh
+
+
+
+Tip: Edits you make on the host are reflected in `/app` inside the container in real time, which makes it easy to iterate on the environment script and testsuite commands.
