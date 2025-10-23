@@ -1,7 +1,6 @@
 import json
 import os
 import threading
-from tkinter import TRUE
 import traceback
 from datetime import datetime
 from typing import Dict, List, Any
