@@ -13,9 +13,19 @@ class EnvRepairContextMessageNode:
 
     def __call__(self, state: EnvImplementState):
         env_implement_command = state.get("env_implement_command", "")
-        env_implement_result = state.get("env_implement_result", "")
+        env_implement_result = state.get("env_implement_result", [])
         test_command = state.get("test_command", "")
-        test_result = state.get("test_result", "")
+        test_result = state.get("test_result", [])
+        
+        # 确保是列表类型
+        if not isinstance(env_implement_result, list):
+            env_implement_result = []
+        if not isinstance(test_result, list):
+            test_result = []
+        
+        # 获取最新的结果（最后一个），或显示所有历史记录
+        latest_env_result = env_implement_result[-1] if len(env_implement_result) > 0 else {}
+        latest_test_result = test_result[-1] if len(test_result) > 0 else {}
 
         env_repair_context_query = (
             """
@@ -27,10 +37,10 @@ ENV IMPLEMENT COMMAND:
             + """
 ```
 
-ENV IMPLEMENT OUTPUT:
+ENV IMPLEMENT OUTPUT (Latest):
 ```
 """
-            + str(env_implement_result)
+            + str(latest_env_result)
             + """
 ```
 
@@ -41,10 +51,10 @@ TEST COMMAND:
             + """
 ```
 
-TEST OUTPUT:
+TEST OUTPUT (Latest):
 ```
 """
-            + str(test_result)
+            + str(latest_test_result)
             + """
 ```
 </context>

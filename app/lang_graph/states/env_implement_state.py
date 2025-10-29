@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Mapping, Sequence, TypedDict
+from typing import Annotated, Any, Dict, Mapping, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -30,19 +30,12 @@ class EnvImplementState(TypedDict):
 
 
     #-------repair related-------
-    env_implement_command: str  # The command for environment implementation
-    env_implement_result: str  # The result of environment implementation
-    test_command: str  # The command for test
-    test_result: str  # The result of test
-    env_repair_context_query: str  # The refined query for environment repair context
-    env_repair_command: str  # The command for environment repair
+    env_implement_command: Sequence[Context]  # （首次生成的）完整的bashfile配置命令（可以被新加入和整合）
+    env_implement_result: Sequence[Dict[str, Any]]  # 运行env_implement_command的结果
+    test_command: Sequence[Context]  # 查找得到的testsuite
+    test_result: Sequence[Dict[str, Any]]  # 运行testsuite的结果
+    env_repair_context_query: Sequence[Context]  # The refined query for environment repair context （什么意思，后面再确认一下）
+    env_repair_command: Sequence[Context]  # 根据分析，得到的可以补充到env_implement_command中的命令列表
+    error_analysis: str  # 分析test_result或者env_implement_result中的错误原因
+    check_state: Dict[str, Any]
 
-    # # Auto-configuration files related
-    # config_files: Sequence[Mapping[str, str]]  # Mapping of filename -> content for configuration files
-    # config_files_generated: bool  # Flag indicating if configuration files were successfully generated
-    # config_validation_log: str  # Logs for configuration file validation
-
-    # # Environment setup
-    # environment_setup_commands: Sequence[str]  # List of commands needed to set up the environment
-    # environment_ready: bool  # Flag indicating if the environment is ready for use
-    # environment_setup_log: str  # Logs from environment setup process

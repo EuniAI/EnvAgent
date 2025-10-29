@@ -1,12 +1,15 @@
-angular https://github.com/angular/angular
-material-ui https://github.com/mui/material-ui
-tailwindcss https://github.com/tailwindlabs/tailwindcss
-code-server https://github.com/coder/code-server
-AutoGPT https://github.com/Significant-Gravitas/AutoGPT
-transformers https://github.com/huggingface/transformers
-langchain https://github.com/langchain-ai/langchain
-yt-dlp https://github.com/yt-dlp/yt-dlp
-keras https://github.com/keras-team/keras
+tailwindcss https://github.com/tailwindlabs/tailwindcss /tmp/tmpy6f8eb1_/tailwindcss
+
+material-ui https://github.com/mui/material-ui  /tmp/tmpccbknwum/material-ui
+
+material-ui https://github.com/mui/material-ui /tmp/tmpdqbxwhf8/material-ui(wrong)
+tailwindcss https://github.com/tailwindlabs/tailwindcss /tmp/tmpft8ykky_/tailwindcss(wrong)
+code-server https://github.com/coder/code-server /tmp/tmp_kr2fdo5/code-server
+AutoGPT https://github.com/Significant-Gravitas/AutoGPT /tmp/tmpr6e4xq2y/AutoGPT
+transformers https://github.com/huggingface/transformers /tmp/tmpnhbnv8w3/transformers
+langchain https://github.com/langchain-ai/langchain /tmp/tmp624y9ggq/langchain
+yt-dlp https://github.com/yt-dlp/yt-dlp /tmp/tmpml47rnbd/yt-dlp
+keras https://github.com/keras-team/keras /tmp/tmp75smrsrw/keras
 
 
 gson https://github.com/google/gson /tmp/tmpg8dtpb4m/gson
@@ -21,3 +24,4 @@ prettier https://github.com/prettier/prettier /tmp/tmpusvu4sru/prettier
 serverless https://github.com/serverless/serverless /tmp/tmpbnndb0ym/serverless
 vscode https://github.com/microsoft/vscode /tmp/tmpdw0cccfg/vscode
 serverless https://github.com/serverless/serverless /tmp/tmpm_bcngta/serverless
+angular https://github.com/angular/angular /tmp/tmp9oobxqt6/angular

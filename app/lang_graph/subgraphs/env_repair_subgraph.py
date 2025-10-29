@@ -1,5 +1,5 @@
 import functools
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence, Dict
 
 import neo4j
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -30,12 +30,63 @@ from app.lang_graph.states.bug_reproduction_state import BugReproductionState
 
 from app.lang_graph.repair_nodes.env_repair_context_message_node import EnvRepairContextMessageNode
 from app.lang_graph.repair_nodes.env_repair_write_node import EnvRepairWriteNode
-# from app.lang_graph.repair_nodes.file_context_retrieval_subgraph_node import FileContextRetrievalSubgraphNode
-# from app.lang_graph.repair_nodes.env_implement_write_message_node import EnvImplementWriteMessageNode
-# from app.lang_graph.repair_nodes.env_implement_write_node import EnvImplementWriteNode
+from app.lang_graph.repair_nodes.env_repair_execute_node import EnvRepairExecuteNode
+from app.lang_graph.repair_nodes.env_repair_analyse_node import EnvRepairAnalyseNode
+from app.lang_graph.repair_nodes.env_repair_output_node import EnvRepairOutputNode
+from app.lang_graph.repair_nodes.env_repair_check_node import EnvRepairCheckNode
+from app.lang_graph.repair_nodes.env_repair_test_node import EnvRepairTestNode
+from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
 from app.lang_graph.repair_nodes.env_implement_file_node import EnvImplementFileNode
 from app.lang_graph.states.env_implement_state import EnvImplementState
 
+
+def router_function(state: Dict) -> str:
+    """路由器函数：根据输入状态决定流程"""
+    env_implement_result = state.get("env_implement_result", [])
+    test_result = state.get("test_result", [])
+    
+    # 确保是列表类型
+    if not isinstance(env_implement_result, list):
+        env_implement_result = []
+    if not isinstance(test_result, list):
+        test_result = []
+
+    # 情况1：没有 env_implement_result，首次执行环境命令
+    if len(env_implement_result) == 0:
+        return "case1"
+    
+    # 情况2：环境命令失败，需要分析错误（检查最后一个结果）
+    if len(env_implement_result) > 0:
+        last_env_result = env_implement_result[-1]
+        if isinstance(last_env_result, dict) and last_env_result.get('returncode', 0) != 0:
+            return "case2"
+    
+    # 情况3：环境命令成功，但还没有运行测试
+    if len(test_result) == 0:
+        return "case3"
+    
+    # 情况4：测试失败，需要分析测试错误（检查最后一个结果）
+    if len(test_result) > 0:
+        last_test_result = test_result[-1]
+        if isinstance(last_test_result, dict) and last_test_result.get('returncode', 0) != 0:
+            return "case4"
+    
+    # 默认情况：都成功
+    return "success"
+
+
+def check_router_function(state: Dict) -> str:
+    """检查路由器：决定是继续循环还是结束"""
+    should_continue = state.get("should_continue", False)
+    env_success = state.get("env_success", False)
+    test_success = state.get("test_success", False)
+    
+    # 如果环境成功且测试成功，直接结束
+    if env_success and test_success:
+        return "end"
+    
+    # 否则继续循环
+    return "continue"
 
 class EnvRepairSubgraph:
     def __init__(
@@ -49,59 +100,86 @@ class EnvRepairSubgraph:
         neo4j_driver: neo4j.Driver,
     ):
         self.advanced_model = advanced_model
-        env_repair_context_message_node = EnvRepairContextMessageNode(debug_mode)
-        env_repair_write_node = EnvRepairWriteNode(base_model, kg, neo4j_driver)
+        self.base_model = base_model
+        self.container = container
         
+        # 创建节点
+        env_repair_check_node = EnvRepairCheckNode() # 检查状态
 
-        # Step 4: Edit files if necessary (based on tool calls)
-        env_implement_file_node = EnvImplementFileNode(base_model, kg, container.project_path)
-        env_implement_file_tools = ToolNode(
-            tools=env_implement_file_node.tools,
-            name="env_implement_file_tools",
-            messages_key="env_implement_file_messages",
-        )
-        git_diff_node = GitDiffNode(git_repo, "env_implement_bash_content")  # todo: state from env_implement_state
+        env_repair_execute_node = EnvRepairExecuteNode(container)
+        env_repair_analyse_node = EnvRepairAnalyseNode(advanced_model, container)
+        # env_repair_analyse_tool_node = ToolNode(
+        #     tools=env_repair_analyse_node.tools,
+        #     name="env_repair_analyse_tool_node",
+        #     messages_key="error_analysis",
+        # )
+        env_repair_test_node = EnvRepairTestNode(container)
+        # env_repair_update_command_node = EnvRepairUpdateCommandNode(container)
 
-
+        # 构建工作流
         workflow = StateGraph(EnvImplementState)
-        workflow.add_node("env_repair_context_message_node", env_repair_context_message_node)
-        workflow.add_node("env_repair_write_node", env_repair_write_node)
-        workflow.add_node("env_implement_file_node", env_implement_file_node) # 保存dockerfile
-        workflow.add_node("env_implement_file_tools", env_implement_file_tools)
-        workflow.add_node("git_diff_node", git_diff_node)
-
-        workflow.set_entry_point("env_repair_context_message_node")
-        workflow.add_edge("env_repair_context_message_node", "env_repair_write_node")
-        workflow.add_edge("env_repair_write_node", "env_implement_file_node")
         
-        # Handle file-editing tool usage or fallback
+        # 添加节点
+        workflow.add_node("router", lambda state: state)  # 路由器节点
+        workflow.add_node("execute_env", env_repair_execute_node)  # 执行环境命令
+        workflow.add_node("analyse_env_error_analyse", env_repair_analyse_node)  # 分析环境错误并生成修复命令
+        # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # 读取文件工具
+        # workflow.add_node("update_command", env_repair_update_command_node)  # 更新命令
+        workflow.add_node("execute_test", env_repair_test_node)  # 执行测试
+        workflow.add_node("analyse_test_error", env_repair_analyse_node)  # 分析测试错误
+        workflow.add_node("check_status", env_repair_check_node)  # 检查状态
+
+        # 设置入口点
+        workflow.set_entry_point("router")
+        
+        # 主路由：根据当前状态决定下一步
         workflow.add_conditional_edges(
-            "env_implement_file_node",
-            functools.partial(tools_condition, messages_key="env_implement_file_messages"),
+            "router",
+            router_function,
             {
-                "tools": "env_implement_file_tools",
-                END: "git_diff_node",
+                "case1": "execute_env",
+                "case2": "analyse_env_error_analyse",
+                "case3": "execute_test",
+                "case4": "analyse_test_error",
+                "success": END,
             },
         )
-        workflow.add_edge("env_implement_file_tools", "env_implement_file_node")
+        
+        # 执行环境命令后，检查状态
+        workflow.add_edge("execute_env", "check_status")
+        
+        # 分析环境错误后，直接更新命令（因为 analyse_node 已经生成了修复命令）
+        # workflow.add_conditional_edges(
+        #     "analyse_env_error_analyse",
+        #     functools.partial(tools_condition, messages_key="error_analysis"),
+        #     {"tools": "analyse_env_error_analyse_tools", END: "update_command"},
+        # )
+        # workflow.add_edge("analyse_env_error_analyse_tools", "analyse_env_error_analyse")
+        workflow.add_edge("analyse_env_error_analyse", "execute_env")
+        
+        # 更新命令后，检查状态（会触发重新执行环境命令）
+        workflow.add_edge("update_command", "check_status")
+        
+        # 执行测试后，检查状态
+        workflow.add_edge("execute_test", "check_status")
+        
+        
+        # 检查状态后，决定是否继续循环
+        workflow.add_conditional_edges(
+            "check_status",
+            check_router_function,
+            {
+                "continue": "router",  # 继续循环
+                "end": END,  # 结束
+            },
+        )
 
-
-        # Compile the full LangGraph subgraph
+        # 编译子图
         self.subgraph = workflow.compile()
 
     def invoke(
         self,
-        env_implement_command: str,
-        env_implement_result: str,
-        test_command: str,
-        test_result: str,
+        input_state: Dict,
     ):
-        input_state = {
-            "env_implement_command": env_implement_command,
-            "env_implement_result": env_implement_result,
-            "test_command": test_command,
-            "test_result": test_result,
-        }
-        
         output_state = self.subgraph.invoke(input_state)
         return output_state

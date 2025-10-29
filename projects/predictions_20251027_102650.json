@@ -1,0 +1,12 @@
+{
+    "sqlfluff": {
+        "project_name": "sqlfluff",
+        "project_repo_url": "https://github.com/sqlfluff/sqlfluff",
+        "success": true,
+        "playground_path": "/tmp/tmp0b3_m9d6/sqlfluff",
+        "container_info": null,
+        "testsuite_states": null,
+        "env_states": null,
+        "timestamp": "2025-10-27T10:27:22.339521"
+    }
+}
