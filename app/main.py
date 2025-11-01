@@ -31,6 +31,8 @@ debug_mode = True
 
 
 
+
+
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
     """
     Serialize states dictionary to be JSON serializable.
@@ -88,23 +90,7 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                     
                 # 按空格分割，但URL可能包含空格，需要特殊处理
                 parts = line.split()
-                # if len(parts) < 4:
-                #     logger.warning(f"第{line_num}行格式不正确，跳过: {line}")
-                #     continue
-                
-                # 前三个部分分别是：项目名、仓库URL、编程语言
                 project_name = parts[0]
-                # language = parts[-2]  # 倒数第二个是编程语言
-                # image_full = parts[-1]  # 最后一个是镜像名:标签
-                
-                # 处理镜像名和标签
-                # if ':' in image_full:
-                #     image_name, tag = image_full.rsplit(':', 1)
-                # else:
-                #     image_name = image_full
-                #     tag = 'latest'
-                
-                # 仓库URL是中间部分，需要重新组合（因为URL可能包含空格）
                 repo_url_parts = parts[1:]#parts[1:-2]
                 repo_url = ' '.join(repo_url_parts)
                 
@@ -163,11 +149,6 @@ llm_service = LLMService(
 def reproduce_test(
     github_url: str,
     github_token: str,
-    # commit_id: str = None,
-    # dockerfile_content: str = None,
-    # image_name: str = None,
-    # build_commands: Sequence[str] = None,
-    # test_commands: Sequence[str] = None,
     workdir: str = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
 
@@ -203,8 +184,12 @@ def reproduce_test(
     doc = {
         "test_command": "",
         "test_result": dict(),
-        "env_implement_command": "",
+        "env_implement_command": {
+            "command": "",
+            "file_content": "",
+        },
         "env_implement_result": dict(),
+        "env_command_result_history": [],
     }
     # Initialize the Testsuite graph
     testsuite_subgraph = TestsuiteSubgraph(
@@ -225,7 +210,7 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
-    env_repair_subgraph=EnvRepairSubgraph(
+    env_repair_subgraph = EnvRepairSubgraph(
         debug_mode=debug_mode,
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
@@ -278,83 +263,19 @@ def reproduce_test(
         testsuiteoutput_states = {}
         env_output_states = {}
 
-    # 已经获取了env命令和testsuite命令，接下来要做的事情就是执行env命令。
-
-    doc["env_implement_command"] = "bash " + os.path.join(container.workdir, 'prometheus_setup.sh')
-    doc["test_command"] = testsuite_commands
-    try:
-        env_implement_output = env_repair_subgraph.invoke(doc)
-    except Exception as e:
-        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-        return False, None, None, None, None
-    # 执行环境设置命令
-    """
-    todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的命令，然后执行。
-    """
-    logger.info("Start executing the Environment Settings command...")
-    try:
-        # 执行环境设置脚本
-        
-        env_setup_output = container.execute_command_with_exit_code("bash " + os.path.join(container.workdir, 'prometheus_setup.sh'))
-        if env_setup_output.returncode == 0:
-            logger.info("环境设置命令执行成功")
-        else:
-            logger.warning(f"环境设置命令执行失败，返回码: {env_setup_output.returncode}")
-            logger.warning(f"错误输出: {env_setup_output.stderr}")
-    except Exception as e:
-        logger.error(f"执行环境设置命令时发生错误: {str(e)}")
-
-
-    """
-    todo: 将testsuite中的命令全部转换成 带环境激活的
-    """
-    
-    # 统一文档输出：为每个测试命令生成一个文档
-    output_docs_dir = os.path.join(container.project_path, 'prometheus_testsuite_docs')
-    os.makedirs(output_docs_dir, exist_ok=True)
-
-    for idx, testsuite_command in enumerate(testsuite_commands, start=1):
-        testsuite_command = testsuite_command.strip()
-        if not testsuite_command:  # 跳过空行
-            continue
-            
-        testsuite_result = container.execute_command_with_exit_code(testsuite_command)
-        if testsuite_result.returncode == 0:
-            logger.info(f"Testsuite command '{testsuite_command}' executed successfully")
-        else:
-            logger.warning(f"Testsuite command '{testsuite_command}' executed failed, return code: {testsuite_result.returncode}")
-            logger.warning(f"Error output: {testsuite_result.stderr}")
-        # 为该测试命令输出一个统一文档（测试输出暂留空）
-        try:
-            doc = {
-                "test_command": testsuite_command,
-                "test_result": testsuite_result.stdout,
-                "env_implement_command": "bash " + os.path.join(container.workdir, 'prometheus_setup.sh'),
-                "env_implement_result": env_setup_output.stdout,
-            }
-            doc_path = os.path.join(output_docs_dir, f"prometheus_testsuite_doc_{idx:03d}.json")
-            with open(doc_path, 'w', encoding='utf-8') as f:
-                json.dump(doc, f, ensure_ascii=False, indent=2)
+    # debug mode: 执行并交互env_implement_command和test_command
+    if debug_mode:
+        doc["env_implement_command"] = {
+            "command": 'bash ' + os.path.join(container.workdir, 'prometheus_setup.sh'),
+            "file_content": env_setup_bash,
+        }
+        doc["test_command"] = testsuite_commands
+        try:            
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=200)
         except Exception as e:
-            logger.error(f"写入测试命令文档失败: {e}")
-
-        logger.info("Starting environment repair...")
-        if testsuite_result.returncode != 0:
-            try:
-                env_repair_output_states = env_repair_subgraph.invoke(
-                    env_implement_command=doc["env_setup_command"],
-                    env_implement_result=doc["env_setup_output"],
-                    test_command=doc["testsuite_command"],
-                    test_result=doc["testsuite_output"],
-                )
-            except Exception as e:
-                logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-                # Clear the knowledge graph and repository
-                container.cleanup()
-                git_repo.reset_repository()
-                logger.removeHandler(file_handler)
-                file_handler.close()
-                return False, None, None, None, None
+            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+            return False, None, None, None, None
+    
     
     # Get container information
     container_info = container.print_container_info()
@@ -387,9 +308,6 @@ def main(
     file: str,
 ):
     
-    # dataset = load_dataset(dataset_name)
-    # filtered_dataset = dataset["test"]
-    # print(f"Dataset loaded: {dataset_name}")
     
     # 解析 all_projects.txt 文件、
     projects = parse_all_projects_file(dataset_file_path)
@@ -402,19 +320,8 @@ def main(
         # 记录当前处理的项目信息
         logger.info(f"开始处理项目: {project['name']} ")
         
-        # Get Issue information
-        # repo_prefix = github_issue["repo"].split("/")[0]
-        # instance_id = github_issue["instance_id"].split("__")[-1]
-        # image_name = SWEBENCH_IMAGE_FORMAT.format(repo_prefix=repo_prefix, instance_id=instance_id)
-        # github_url = GITHUB_HTTPS_URL.format(repo_name=github_issue["repo"])
-        # commit_id = github_issue["base_commit"]
-        # problem_statement_lines = github_issue["problem_statement"].splitlines()
-        # issue_title = problem_statement_lines[0]
-        # issue_body = "\n".join(problem_statement_lines[1:])
 
         github_url = project["repo_url"]
-        # language = project["language"]
-        # image_name = project["image"]
 
         # Reproduce the bug
         success, testsuite_states, env_states, playground_path, container_info = reproduce_test(github_url, github_token, "/testbed")
@@ -422,9 +329,7 @@ def main(
         # Create project result with all states
         project_result = {
             "project_name": project['name'],
-            # "project_language": project['language'],
             "project_repo_url": project['repo_url'],
-            # "project_image": project['image'],
             "success": success,
             "playground_path": str(playground_path) if playground_path else None,
             "container_info": container_info,

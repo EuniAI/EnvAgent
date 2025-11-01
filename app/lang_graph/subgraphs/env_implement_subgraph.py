@@ -136,5 +136,6 @@ class EnvImplementSubgraph:
             "max_refined_query_loop": 3,
         }
         
-        output_state = self.subgraph.invoke(input_state)
+        config = {"recursion_limit": recursion_limit}
+        output_state = self.subgraph.invoke(input_state, config)
         return output_state

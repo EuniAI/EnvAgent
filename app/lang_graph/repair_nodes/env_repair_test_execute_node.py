@@ -8,7 +8,7 @@ from app.container.base_container import BaseContainer
 from app.utils.logger_manager import get_thread_logger
 
 
-class EnvRepairTestNode:
+class EnvRepairTestExecuteNode:
     """执行 test_command 并返回结果"""
 
     def __init__(self, container: BaseContainer):

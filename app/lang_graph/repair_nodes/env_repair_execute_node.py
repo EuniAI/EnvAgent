@@ -16,13 +16,16 @@ class EnvRepairExecuteNode:
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: Dict):
-        env_implement_command = state.get("env_implement_command", "")
+        env_implement_command = state.get("env_implement_command", {})
+        env_repair_command = state.get("env_repair_command", [])
+        # 优先运行 env_repair_command
+        current_command = env_implement_command["command"]  # 现在默认只运行env_implement_command
         
-        self._logger.info(f"执行环境命令: {env_implement_command}")
+        self._logger.info(f"执行环境命令: {current_command}")
         
         # 执行命令
         env_setup_output = self.container.execute_command_with_exit_code(
-            env_implement_command
+            current_command
         )
         
         
@@ -30,21 +33,21 @@ class EnvRepairExecuteNode:
 
 
         # 将env_setup_output转换为字典
-        env_setup_output_dict = {
+        env_result_dict = {
             "returncode": env_setup_output.returncode,
             "stdout": env_setup_output.stdout,
             "stderr": env_setup_output.stderr,
         }
         
         # 获取现有的 env_implement_result 列表（如果有），并追加新结果
-        existing_results = state.get("env_implement_result", [])
-        if not isinstance(existing_results, list):
-            existing_results = []
-        
-        # 追加新结果到列表（保留历史记录）
-        updated_results = existing_results + [env_setup_output_dict]
+
+        env_command_result_history = state.get("env_command_result_history", []) + [{
+            'command': env_implement_command, 
+            'result': env_result_dict
+        }]
         
         return {
-            "env_implement_result": updated_results,
+            "env_implement_result": env_result_dict,
+            "env_command_result_history": env_command_result_history,
         }
 
