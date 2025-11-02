@@ -28,9 +28,7 @@ class EnvRepairExecuteNode:
             current_command
         )
         
-        
         self._logger.info(f"命令执行完成，退出码: {env_setup_output.returncode}")
-
 
         # 将env_setup_output转换为字典
         env_result_dict = {

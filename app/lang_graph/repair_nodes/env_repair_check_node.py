@@ -15,29 +15,24 @@ class EnvRepairCheckNode:
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: Dict):
-        env_implement_result = state.get("env_implement_result", [])
-        test_result = state.get("test_result", [])
-        
-        # 确保是列表类型
-        if not isinstance(env_implement_result, list):
-            env_implement_result = []
-        if not isinstance(test_result, list):
-            test_result = []
+        env_implement_result = state.get("env_implement_result", {})
+        test_results = state.get("test_result", [])
         
         # 检查 env_implement_result 是否成功
         env_success = False
         if len(env_implement_result) > 0:
-            last_result = env_implement_result[-1]
-            if isinstance(last_result, dict) and 'returncode' in last_result:
-                env_success = last_result['returncode'] == 0
+            if isinstance(env_implement_result, dict) and 'returncode' in env_implement_result:
+                env_success = env_implement_result['returncode'] == 0
         
         # 检查 test_result 是否成功
         test_success = False
-        if len(test_result) > 0:
-            last_result = test_result[-1]
-            if isinstance(last_result, dict) and 'returncode' in last_result:
-                test_success = last_result['returncode'] == 0
-        elif len(test_result) == 0: 
+        if len(test_results) > 0:
+            test_success_list = []
+            for result in test_results:
+                if isinstance(result, dict) and 'returncode' in result:
+                    test_success_list.append(result['returncode'] == 0)
+            test_success = all(test_success_list)  # 确保所有测试都成功
+        elif len(test_results) == 0: 
             # 如果没有 test_result，可能需要先运行 test
             self._logger.info("需要运行测试")
         

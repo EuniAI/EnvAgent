@@ -28,16 +28,15 @@ from app.lang_graph.nodes.reset_messages_node import ResetMessagesNode
 from app.lang_graph.nodes.update_container_node import UpdateContainerNode
 from app.lang_graph.states.bug_reproduction_state import BugReproductionState
 
-from app.lang_graph.repair_nodes.env_repair_context_message_node import EnvRepairContextMessageNode
-from app.lang_graph.repair_nodes.env_repair_write_node import EnvRepairWriteNode
+from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.lang_graph.repair_nodes.env_repair_execute_node import EnvRepairExecuteNode
 from app.lang_graph.repair_nodes.env_repair_analyse_node import EnvRepairAnalyseNode
-from app.lang_graph.repair_nodes.env_repair_output_node import EnvRepairOutputNode
 from app.lang_graph.repair_nodes.env_repair_check_node import EnvRepairCheckNode
-from app.lang_graph.repair_nodes.env_repair_test_execute_node import EnvRepairTestExecuteNode
 from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
-from app.lang_graph.repair_nodes.env_implement_file_node import EnvImplementFileNode
-from app.lang_graph.states.env_implement_state import EnvImplementState
+
+from app.lang_graph.repair_nodes.env_repair_test_execute_node import EnvRepairTestExecuteNode
+from app.lang_graph.repair_nodes.env_repair_test_analyse_node import EnvRepairTestAnalyseNode
+from app.lang_graph.repair_nodes.env_repair_test_update_command_node import EnvRepairTestUpdateCommandNode
 
 
 def router_function(state: Dict) -> str:
@@ -60,8 +59,7 @@ def router_function(state: Dict) -> str:
     
     # 情况4：测试失败，需要分析测试错误（检查最后一个结果）
     if len(test_result) > 0:
-        last_test_result = test_result[-1]
-        if isinstance(last_test_result, dict) and last_test_result.get('returncode', 0) != 0:
+        if isinstance(test_result, dict) and test_result.get('returncode', 0) != 0:
             return "case4"
     
     # 默认情况：都成功
@@ -102,9 +100,14 @@ class EnvRepairSubgraph:
         env_repair_execute_node = EnvRepairExecuteNode(container)
         env_repair_analyse_node = EnvRepairAnalyseNode(advanced_model, container)
         env_repair_update_command_node = EnvRepairUpdateCommandNode(advanced_model, container, container.project_path)
+        env_repair_update_command_tool_node = ToolNode(
+            tools=env_repair_update_command_node.tools,
+            name="env_repair_update_command_tool_node",
+            messages_key="env_implement_command_messages",
+        )
         env_repair_test_execute_node = EnvRepairTestExecuteNode(container)
-        
-
+        env_repair_test_analyse_node = EnvRepairTestAnalyseNode(advanced_model, container)
+        env_repair_test_update_command_node = EnvRepairTestUpdateCommandNode(advanced_model, container, container.project_path)
         # 构建工作流
         workflow = StateGraph(EnvImplementState)
         
@@ -114,9 +117,10 @@ class EnvRepairSubgraph:
         workflow.add_node("analyse_env_error_analyse", env_repair_analyse_node)  # 分析环境错误并生成修复命令
         # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # 读取文件工具
         workflow.add_node("update_command", env_repair_update_command_node)  # 更新命令
-        # workflow.add_node("update_command_tools", env_repair_update_command_tools_node)  # 更新命令工具
+        workflow.add_node("update_command_tool", env_repair_update_command_tool_node)  # 更新命令工具
         workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
-        workflow.add_node("analyse_test_error", env_repair_analyse_node)  # 分析测试错误
+        workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
+        workflow.add_node("update_test_command", env_repair_test_update_command_node)  # 更新测试命令
         workflow.add_node("check_status", env_repair_check_node)  # 检查状态
 
         # 设置入口点
@@ -138,12 +142,21 @@ class EnvRepairSubgraph:
         # 执行环境命令后，检查状态
         workflow.add_edge("execute_env", "check_status")
         workflow.add_edge("analyse_env_error_analyse", "update_command")
-        
-        # 更新命令后，检查状态（会触发重新执行环境命令）
-        workflow.add_edge("update_command", "execute_env")
+        workflow.add_edge("update_command", "update_command_tool")
+        workflow.add_conditional_edges(
+            "update_command_tool",
+            functools.partial(tools_condition, messages_key="env_implement_command_messages"),
+            {
+                "tools": "update_command",
+                END: "execute_env",
+            },
+        )
+        # Tool execution returns to update_command for continuation
         
         # 执行测试后，检查状态
         workflow.add_edge("execute_test", "check_status")
+        workflow.add_edge("analyse_test_error", "update_test_command")
+        workflow.add_edge("update_test_command", "execute_test")
         
         
         # 检查状态后，决定是否继续循环

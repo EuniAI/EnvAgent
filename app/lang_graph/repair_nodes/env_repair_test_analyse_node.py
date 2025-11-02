@@ -1,4 +1,4 @@
-"""节点：分析 env_implement_result 中的错误"""
+"""节点：分析 test_result_history 中的错误"""
 
 import functools
 from typing import Dict, List
@@ -33,28 +33,26 @@ class RepairCommandsOutput(BaseModel):
     )
 
 
-class EnvRepairAnalyseNode:
-    """分析环境命令执行结果中的错误并生成修复命令"""
+class EnvRepairTestAnalyseNode:
+    """分析测试命令执行结果中的错误并生成修复命令"""
     
     SYS_PROMPT = """\
-你是一个环境修复分析专家。你的任务是分析环境命令执行的结果，识别错误原因，并生成具体的修复指令列表。
+你是一个环境修复分析专家。你的任务是分析测试命令执行的历史结果，识别错误原因，并生成具体的修复指令列表。
 
 输入包含：
-- ENV IMPLEMENT COMMAND: 已执行的环境命令
-- ENV IMPLEMENT OUTPUT: 命令的输出结果（包含错误信息）
-- TEST COMMAND: 需要运行的测试命令（如果有）
-- PREVIOUS ROUNDS HISTORY: 前3轮的历史命令和结果（如果有）
+- TEST COMMAND HISTORY: 最后3轮的测试命令执行历史和结果
+- CURRENT TEST RESULTS: 当前最新的测试结果
 
 你的任务分为三部分：
 
 第一部分：错误分析
-1. 仔细分析 ENV IMPLEMENT OUTPUT 中的错误信息
-2. 识别根本原因（如：模块未找到、命令不存在、缺少共享库、版本冲突等）
-3. 分析为什么当前命令无法完成环境搭建
+1. 仔细分析当前测试结果中的错误信息
+2. 识别根本原因（如：模块未找到、命令不存在、缺少共享库、版本冲突、环境配置问题等）
+3. 分析为什么测试失败
 4. 提供详细的错误分析总结
 
 第二部分：历史反思
-如果提供了 PREVIOUS ROUNDS HISTORY，你需要：
+如果提供了 TEST COMMAND HISTORY（最后3轮历史），你需要：
 1. 对比当前错误与历史轮次中的错误
 2. 判断当前错误是否与历史错误相同或相似
 3. 如果错误一直出现（重复了多轮），说明之前的修复策略可能无效
@@ -123,46 +121,64 @@ class EnvRepairAnalyseNode:
     
 
     def __call__(self, state: Dict):
-        env_implement_command = state.get("env_implement_command", {})
-        env_implement_result = state.get("env_implement_result", {})
-        env_command_result_history = state.get("env_command_result_history", [])
-        test_command = state.get("test_command", "")
+        test_command = state.get("test_command", [])
         test_result = state.get("test_result", [])
-
-        str_env_implement_command = env_implement_command["file_content"]
+        test_command_result_history = state.get("test_command_result_history", [])
         
+        self._logger.info("分析测试执行结果...")
         
-        # 获取最新的结果（最后一个）
-        latest_env_result = env_implement_result
-        latest_test_result = test_result
-        
-        self._logger.info("分析环境执行结果...")
-        
-        # 获取前3轮的历史信息（如果存在）
+        # 获取最后3轮的历史信息（如果存在）
         previous_rounds_text = ""
-        if len(env_command_result_history) > 1:
-            # 获取倒数第2到倒数第4个元素（前3轮，不包含当前轮）
-            # 当前轮是最后一个，所以从倒数第2个开始
-            start_idx = max(0, len(env_command_result_history) - 4)  # 倒数第4个
-            end_idx = len(env_command_result_history) - 1  # 倒数第2个（不包含最后一个）
+        if len(test_command_result_history) > 0:
+            # 获取最后3个历史项（包含当前轮，所以取最后3个）
+            start_idx = max(0, len(test_command_result_history) - 3)
+            end_idx = len(test_command_result_history)
             
-            if end_idx >= start_idx:
-                previous_rounds = env_command_result_history[start_idx:end_idx]
+            if end_idx > start_idx:
+                previous_rounds = test_command_result_history[start_idx:end_idx]
                 previous_rounds_parts = []
                 
                 for idx, history_item in enumerate(previous_rounds):
                     # round_num 是实际在历史中的索引位置（从0开始计数）
                     round_num = start_idx + idx
-                    history_command = history_item.get('command', {})
-                    history_result = history_item.get('result', {})
+                    history_command = history_item.get('command', [])
+                    history_result = history_item.get('result', [])
                     history_analysis = history_item.get('analysis', '')
+                    
+                    # 格式化历史命令（可能是列表）
+                    command_str = ""
+                    if isinstance(history_command, list):
+                        command_str = "\n".join([str(cmd) for cmd in history_command])
+                    else:
+                        command_str = str(history_command)
+                    
+                    # 格式化历史结果（可能是列表，每个结果包含多个测试命令的结果）
+                    result_str_parts = []
+                    if isinstance(history_result, list):
+                        for res_idx, res in enumerate(history_result):
+                            result_str_parts.append(f"""
+                            Test {res_idx + 1}:
+                              Command: {res.get('command', 'N/A')}
+                              Exit Code: {res.get('returncode', 'N/A')}
+                              Stdout: {res.get('stdout', '')}
+                              Stderr: {res.get('stderr', '')}
+                            """)
+                    else:
+                        result_str_parts.append(f"""
+                        Exit Code: {history_result.get('returncode', 'N/A')}
+                        Stdout: {history_result.get('stdout', '')}
+                        Stderr: {history_result.get('stderr', '')}
+                        """)
                     
                     round_text = f"""
                     Round {round_num}:
-                    Command: {history_command.get('file_content', 'N/A')}
-                    Exit Code: {history_result.get('returncode', 'N/A')}
-                    Stdout: {history_result.get('stdout', '')}
-                    Stderr: {history_result.get('stderr', '')}
+                    Test Commands:
+                    ```
+                    {command_str}
+                    ```
+                    
+                    Test Results:
+                    {''.join(result_str_parts)}
                     """
                     if history_analysis:
                         round_text += f"  Previous Analysis: {history_analysis}\n"
@@ -170,43 +186,50 @@ class EnvRepairAnalyseNode:
                 
                 if previous_rounds_parts:
                     previous_rounds_text = """
-                    PREVIOUS ROUNDS HISTORY:
+                    TEST COMMAND HISTORY (Last 3 Rounds):
                     """
                     previous_rounds_text += "\n".join(previous_rounds_parts)
         
-        # 组织查询（显示最新结果，包含前3轮历史）
-        context_query = (
-            """
+        # 格式化当前测试结果
+        current_test_result_text = ""
+        if isinstance(test_result, list) and len(test_result) > 0:
+            result_parts = []
+            for idx, res in enumerate(test_result):
+                result_parts.append(f"""
+                Test {idx + 1}:
+                  Command: {res.get('command', 'N/A')}
+                  Exit Code: {res.get('returncode', 'N/A')}
+                  Stdout: {res.get('stdout', '')}
+                  Stderr: {res.get('stderr', '')}
+                """)
+            current_test_result_text = "\n".join(result_parts)
+        else:
+            current_test_result_text = str(test_result)
+        
+        # 格式化当前测试命令
+        current_test_command_text = ""
+        if isinstance(test_command, list):
+            current_test_command_text = "\n".join([str(cmd) for cmd in test_command])
+        else:
+            current_test_command_text = str(test_command)
+        
+        # 组织查询（显示最新结果，包含最后3轮历史）
+        context_query = """
             <context>
-            ENV IMPLEMENT COMMAND:
+            CURRENT TEST COMMAND:
             ```
             """
-            + str_env_implement_command
-            + """
+        context_query += current_test_command_text
+        context_query += """
             ```
 
-            ENV IMPLEMENT OUTPUT (Latest):
+            CURRENT TEST RESULTS:
             ```
             """
-            + str(latest_env_result)
-            + """
-            ```
-
-            TEST COMMAND:
+        context_query += current_test_result_text
+        context_query += """
             ```
             """
-            + str(test_command)
-            + """
-            ```
-
-            TEST OUTPUT (Latest):
-            ```
-            """
-            + str(latest_test_result)
-            + """
-            ```
-"""
-        )
         
         # 如果有历史信息，添加到context中
         if previous_rounds_text:
@@ -220,7 +243,7 @@ class EnvRepairAnalyseNode:
         # 分析错误并生成修复指令列表
         prompt_text = (
             context_query 
-            + "\n请分析上述环境命令执行失败的原因。如果提供了历史轮次信息，请对比当前错误与历史错误。如果发现错误重复出现，请反思之前的修复策略为何无效，并采用完全不同的新策略来解决。最后根据分析结果生成修复指令列表。"
+            + "\n请分析上述测试命令执行失败的原因。如果提供了历史轮次信息，请对比当前错误与历史错误。如果发现错误重复出现，请反思之前的修复策略为何无效，并采用完全不同的新策略来解决。最后根据分析结果生成修复指令列表。"
         )
         
         # 使用结构化输出模型
@@ -234,24 +257,21 @@ class EnvRepairAnalyseNode:
         self._logger.info(f"错误分析: {error_analysis_text}")
         self._logger.info(f"修复指令列表: {repair_commands}")
         
-        # 将修复指令列表转换为 Context 格式（根据状态定义）
-        from app.models.context import Context
+        # 将修复指令列表转换为字符串列表（根据状态定义，env_repair_command 是 Sequence[str]）
         repair_command_contexts = [
-            cmd.strip() for cmd in repair_commands
+            cmd.strip() for cmd in repair_commands if cmd.strip()
         ]
 
-
-        env_command_result_history = state.get("env_command_result_history", [])
-        if len(env_command_result_history) > 0:
-            current_env_command_result_history = env_command_result_history[-1]
-            current_env_command_result_history['analysis'] = error_analysis_text
-            current_env_command_result_history['repair_commands'] = repair_command_contexts
-            env_command_result_history[-1] = current_env_command_result_history
-
+        # 更新 test_command_result_history 中最后一个条目的 analysis
+        test_command_result_history = state.get("test_command_result_history", [])
+        if len(test_command_result_history) > 0:
+            current_test_history = test_command_result_history[-1].copy()
+            current_test_history['analysis'] = error_analysis_text
+            test_command_result_history[-1] = current_test_history
 
         return {
             "env_error_analysis": error_analysis_text,
             "env_repair_command": repair_command_contexts,
-            "env_command_result_history": env_command_result_history,
+            "test_command_result_history": test_command_result_history,
         }
 
