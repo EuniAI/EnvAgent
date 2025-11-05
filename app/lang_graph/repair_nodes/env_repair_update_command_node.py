@@ -9,6 +9,7 @@ from app.container.base_container import BaseContainer
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from app.tools import file_operation
+from app.lang_graph.repair_nodes.env_command_utils import extract_command_from_messages, store_command_in_message
 import os
 
 
@@ -113,30 +114,106 @@ Modification Guidelines:
             self._logger.error(f"Error reading updated file {relative_path}: {str(e)}")
         return ""
 
-    def __call__(self, state: Dict):
-        env_implement_command = state.get("env_implement_command", {})
-        env_command = env_implement_command.get("command", "")
-        env_implement_result = state.get("env_implement_result", {})
-        env_error_analysis = state.get("env_error_analysis", "")
-        env_repair_commands = state.get("env_repair_command", [])
+    def _check_all_tool_calls_completed(self, messages: list) -> bool:
+        """检查所有工具调用是否都已完成
         
-        # Extract repair commands
-        repair_command_list = self._extract_repair_commands(env_repair_commands)
-        if not repair_command_list:
-            self._logger.warning("No repair commands found, keeping unchanged")
-            return {}
+        返回 True 如果：
+        1. 没有 AIMessage 有 tool_calls，或者
+        2. 所有 AIMessage 的 tool_calls 都有对应的 ToolMessage 响应
+        """
+        # 收集所有待处理的 tool_call IDs
+        pending_tool_call_ids = set()
+        completed_tool_call_ids = set()
         
-        # Extract script file path
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                tool_calls = msg.tool_calls or []
+                for tool_call in tool_calls:
+                    tool_call_id = tool_call.get("id")
+                    if tool_call_id:
+                        pending_tool_call_ids.add(tool_call_id)
+            elif isinstance(msg, ToolMessage):
+                tool_call_id = msg.tool_call_id
+                if tool_call_id:
+                    completed_tool_call_ids.add(tool_call_id)
+        
+        # 检查是否所有待处理的 tool_calls 都已完成
+        all_completed = pending_tool_call_ids.issubset(completed_tool_call_ids)
+        
+        # 同时检查最后一条消息：如果是 ToolMessage 或没有 tool_calls 的 AIMessage，说明可能已完成
+        last_msg = messages[-1] if messages else None
+        if last_msg:
+            if isinstance(last_msg, ToolMessage):
+                # 工具执行完成，检查是否还有待处理的 tool_calls
+                return all_completed
+            elif isinstance(last_msg, AIMessage):
+                # 如果是 AIMessage 且没有 tool_calls，说明已完成
+                if not last_msg.tool_calls:
+                    return True
+                # 如果有 tool_calls，检查是否都已完成
+                return all_completed
+        
+        return all_completed
+
+    def _finalize_update(self, existing_messages: list, env_command: str, state: Dict) -> Dict:
+        """完成更新流程：读取文件、更新历史记录、返回最终状态"""
         script_file_path = self._get_script_relative_path(env_command)
         if not script_file_path:
-            self._logger.warning("No script file path found in command")
+            self._logger.warning(f"Could not extract script path from command: {env_command}")
             return {}
         
-        # Build prompt
+        self._logger.info(f"Finalizing update for script: {script_file_path}")
+        updated_content = self._read_updated_file_content(script_file_path)
+        
+        if not updated_content:
+            self._logger.warning(f"Could not read updated file content from {script_file_path}, using previous content")
+            # 尝试从历史记录中获取
+            env_command_result_history = state.get("env_command_result_history", [])
+            if env_command_result_history:
+                last_command = env_command_result_history[-1].get("command", {})
+                updated_content = last_command.get("file_content", "")
+        
+        if updated_content:
+            self._logger.info(f"Successfully read updated file content ({len(updated_content)} characters)")
+        else:
+            self._logger.error(f"Failed to get file content for {script_file_path}")
+        
+        final_env_implement_command = {
+            "command": env_command,
+            "file_content": updated_content,
+        }
+        
+        # Update env_command_result_history
+        env_command_result_history = state.get("env_command_result_history", [])
+        if len(env_command_result_history) > 0:
+            current_env_command_result_history = env_command_result_history[-1]
+            if 'update' not in current_env_command_result_history:
+                current_env_command_result_history['update'] = []
+            for msg in existing_messages:
+                if isinstance(msg, AIMessage):
+                    tool_calls = msg.tool_calls or []
+                    for tool_call in tool_calls:
+                        if tool_call.get("name") == "edit_file":
+                            current_env_command_result_history['update'].append(tool_call.get("args", {}))
+            env_command_result_history[-1] = current_env_command_result_history
+        
+        # Store command info in message
+        completion_msg = store_command_in_message(final_env_implement_command)
+        updated_messages = existing_messages + [completion_msg]
+        
+        return {
+            "env_implement_command": final_env_implement_command,
+            "env_implement_command_messages": updated_messages,
+            "env_repair_command": [],
+            "env_command_result_history": env_command_result_history
+        }
+
+    def _build_initial_prompt(self, repair_command_list: list, script_file_path: str, 
+                             env_error_analysis: str, env_implement_result: Dict) -> str:
+        """构建初始提示词"""
         repair_commands_text = "\n".join([f"- {cmd}" for cmd in repair_command_list])
         error_analysis_section = f"ENV ERROR ANALYSIS:\n```\n{env_error_analysis}\n```\n\n" if env_error_analysis else ""
         
-        # Build execution result section
         result_section = ""
         if env_implement_result:
             returncode = env_implement_result.get("returncode", "")
@@ -157,7 +234,7 @@ Modification Guidelines:
 
             """
         
-        prompt_text = f"""\
+        return f"""\
         {error_analysis_section}{result_section}REPAIR COMMANDS TO INTEGRATE:
         ```
         {repair_commands_text}
@@ -171,74 +248,85 @@ Modification Guidelines:
         3. Make multiple edit_file calls if you need to modify multiple separate sections
         4. DO NOT replace the entire file - only modify what needs to be changed
         """
+
+    def __call__(self, state: Dict):
+        # Extract state
+        existing_messages = state.get("env_implement_command_messages", [])
+        env_command_info = extract_command_from_messages(existing_messages, state)
+        env_command = env_command_info.get("command", "")
+        env_implement_result = state.get("env_implement_result", {})
+        env_error_analysis = state.get("env_error_analysis", "")
+        env_repair_commands = state.get("env_repair_command", [])
         
-        # Build message history and invoke model with tools
+        # Handle existing messages: check if tool calls are completed
+        if existing_messages:
+            # 检查所有工具调用是否都已完成
+            if self._check_all_tool_calls_completed(existing_messages):
+                # 所有工具调用已完成，检查模型是否需要继续对话或已完成
+                last_msg = existing_messages[-1]
+                if isinstance(last_msg, ToolMessage):
+                    # 工具执行完成，让模型决定下一步（可能需要生成新的 tool_calls 或完成）
+                    self._logger.info(f"All tool calls completed, getting model response with {len(existing_messages)} messages")
+                    response = self.model_with_tools.invoke(existing_messages)
+                    
+                    # 如果模型没有新的 tool_calls，说明更新完成
+                    if isinstance(response, AIMessage) and not response.tool_calls:
+                        # 模型已完成，finalize update
+                        self._logger.info("Model completed without new tool calls, finalizing update")
+                        return self._finalize_update(existing_messages + [response], env_command, state)
+                    else:
+                        # 模型需要继续工具调用
+                        return {
+                            "env_implement_command_messages": existing_messages + [response],
+                            "env_repair_command": [],
+                        }
+                elif isinstance(last_msg, AIMessage) and not last_msg.tool_calls:
+                    # 最后一条消息是没有 tool_calls 的 AIMessage，说明已完成
+                    self._logger.info("No pending tool calls, finalizing update")
+                    return self._finalize_update(existing_messages, env_command, state)
+            
+            # 如果所有工具调用未完成，不应该调用模型，应该等待工具执行
+            # 但根据工作流，如果回到这里，工具应该已经执行完成
+            # 这种情况不应该发生，但为了安全起见，我们记录警告并尝试继续
+            last_msg = existing_messages[-1] if existing_messages else None
+            if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
+                # 还有未完成的 tool_calls，但根据工作流这不应该发生
+                # 可能工具节点还没有执行，这种情况不应该调用模型
+                self._logger.warning(f"Found pending tool calls in last message, but expected all to be completed. Last message: {type(last_msg).__name__}")
+                # 返回空状态，让工作流继续（工具节点应该会处理）
+                return {
+                    "env_repair_command": [],
+                }
+            
+            # Continue conversation with existing messages
+            self._logger.info(f"Continuing conversation with {len(existing_messages)} messages")
+            response = self.model_with_tools.invoke(existing_messages)
+            return {
+                "env_implement_command_messages": existing_messages + [response],
+                "env_repair_command": [],
+            }
+        
+        # Initialize new update cycle
+        repair_command_list = self._extract_repair_commands(env_repair_commands)
+        if not repair_command_list:
+            self._logger.warning("No repair commands found, keeping unchanged")
+            return {}
+        
+        script_file_path = self._get_script_relative_path(env_command)
+        if not script_file_path:
+            self._logger.warning("No script file path found in command")
+            return {}
+        
+        # Build prompt and invoke model
+        prompt_text = self._build_initial_prompt(
+            repair_command_list, script_file_path, env_error_analysis, env_implement_result
+        )
         message_history = [self.system_prompt, HumanMessage(prompt_text)]
-        self._logger.info(f"Using model with tools to update script file: {script_file_path}")
         
-        # Process tool calls iteratively
-        max_iterations = 10
-        for iteration in range(max_iterations):
-            response = self.model_with_tools.invoke(message_history)
-            self._logger.debug(f"Iteration {iteration + 1} response: {response}")
-            
-            # Add response to message history
-            message_history.append(response)
-            
-            # Check if model wants to call tools
-            if not response.tool_calls:
-                break
-            
-            # Execute tool calls
-            for tool_call in response.tool_calls:
-                tool_name = tool_call["name"]
-                tool_args = tool_call["args"]
-                
-                # Find and execute the tool
-                tool = next((t for t in self.tools if t.name == tool_name), None)
-                if tool:
-                    try:
-                        tool_result = tool.invoke(tool_args)
-                        tool_message = ToolMessage(
-                            content=str(tool_result),
-                            tool_call_id=tool_call["id"]
-                        )
-                        message_history.append(tool_message)
-                        self._logger.info(f"Tool {tool_name} executed successfully")
-                    except Exception as e:
-                        self._logger.error(f"Error executing tool {tool_name}: {str(e)}")
-                        tool_message = ToolMessage(
-                            content=f"Error: {str(e)}",
-                            tool_call_id=tool_call["id"]
-                        )
-                        message_history.append(tool_message)
-        
-        # Read updated file content
-        updated_content = self._read_updated_file_content(script_file_path)
-        
-        # Update state
-        env_implement_command = {
-            "command": env_command,  # Keep original command format
-            "file_content": updated_content,
-        }
-        env_command_result_history = state.get("env_command_result_history", [])
-        if len(env_command_result_history) > 0:
-            current_env_command_result_history = env_command_result_history[-1]
-            current_env_command_result_history['update']=[]
-            for msg in message_history:
-                if isinstance(msg, AIMessage):
-                    tool_calls = msg.tool_calls
-                    for tool_call in tool_calls:
-                        tool_name = tool_call["name"]
-                        tool_args = tool_call["args"]
-                        if tool_name == "edit_file":
-                            current_env_command_result_history['update'].append(tool_args)
-            env_command_result_history[-1] = current_env_command_result_history
-        
-        env_repair_command = []
+        self._logger.info(f"Starting update for script file: {script_file_path}")
+        response = self.model_with_tools.invoke(message_history)
         
         return {
-            "env_implement_command": env_implement_command,
-            "env_repair_command": env_repair_command,
-            "env_command_result_history": env_command_result_history
+            "env_implement_command_messages": message_history + [response],
+            "env_repair_command": [],
         }

@@ -4,6 +4,7 @@ import threading
 from app.models.context import Context
 from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.repair_nodes.env_command_utils import extract_command_from_messages
 
 class EnvRepairContextMessageNode:
 
@@ -12,7 +13,10 @@ class EnvRepairContextMessageNode:
         self._logger, _file_handler  = get_thread_logger(__name__)
 
     def __call__(self, state: EnvImplementState):
-        env_implement_command = state.get("env_implement_command", "")
+        # Extract command from messages (with backward compatibility)
+        messages = state.get("env_implement_command_messages", [])
+        env_implement_command_dict = extract_command_from_messages(messages, state)
+        env_implement_command = env_implement_command_dict.get("file_content", "") or env_implement_command_dict.get("command", "")
         env_implement_result = state.get("env_implement_result", [])
         test_command = state.get("test_command", "")
         test_result = state.get("test_result", [])

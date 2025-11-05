@@ -142,15 +142,16 @@ class EnvRepairSubgraph:
         # 执行环境命令后，检查状态
         workflow.add_edge("execute_env", "check_status")
         workflow.add_edge("analyse_env_error_analyse", "update_command")
-        workflow.add_edge("update_command", "update_command_tool")
+        # workflow.add_edge("update_command", "update_command_tool")
         workflow.add_conditional_edges(
-            "update_command_tool",
+            "update_command",
             functools.partial(tools_condition, messages_key="env_implement_command_messages"),
             {
-                "tools": "update_command",
+                "tools": "update_command_tool",
                 END: "execute_env",
             },
         )
+        workflow.add_edge("update_command_tool", "update_command")
         # Tool execution returns to update_command for continuation
         
         # 执行测试后，检查状态

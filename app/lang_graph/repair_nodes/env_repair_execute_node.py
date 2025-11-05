@@ -6,6 +6,7 @@ from typing import Dict
 
 from app.container.base_container import BaseContainer
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.repair_nodes.env_command_utils import extract_command_from_messages
 
 
 class EnvRepairExecuteNode:
@@ -16,10 +17,17 @@ class EnvRepairExecuteNode:
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: Dict):
-        env_implement_command = state.get("env_implement_command", {})
+        # Extract command from messages (with backward compatibility)
+        messages = state.get("env_implement_command_messages", [])
+        env_implement_command = extract_command_from_messages(messages, state)
+        
         env_repair_command = state.get("env_repair_command", [])
         # 优先运行 env_repair_command
-        current_command = env_implement_command["command"]  # 现在默认只运行env_implement_command
+        current_command = env_implement_command.get("command", "")  # 现在默认只运行env_implement_command
+        
+        if not current_command:
+            self._logger.warning("No command found in messages or state")
+            return {}
         
         self._logger.info(f"执行环境命令: {current_command}")
         

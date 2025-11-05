@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from app.container.base_container import BaseContainer
 from app.utils.logger_manager import get_thread_logger
 from app.utils.str_util import pre_append_line_numbers
+# Extract command from messages (with backward compatibility)
+from app.lang_graph.repair_nodes.env_command_utils import extract_command_from_messages
 
 
 class ReadFileInput(BaseModel):
@@ -123,13 +125,15 @@ class EnvRepairAnalyseNode:
     
 
     def __call__(self, state: Dict):
-        env_implement_command = state.get("env_implement_command", {})
+        messages = state.get("env_implement_command_messages", [])
+        env_implement_command = extract_command_from_messages(messages, state)
+        
         env_implement_result = state.get("env_implement_result", {})
         env_command_result_history = state.get("env_command_result_history", [])
         test_command = state.get("test_command", "")
         test_result = state.get("test_result", [])
 
-        str_env_implement_command = env_implement_command["file_content"]
+        str_env_implement_command = env_implement_command.get("file_content", "")
         
         
         # 获取最新的结果（最后一个）
@@ -205,7 +209,7 @@ class EnvRepairAnalyseNode:
             + str(latest_test_result)
             + """
             ```
-"""
+        """
         )
         
         # 如果有历史信息，添加到context中
