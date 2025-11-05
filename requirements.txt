@@ -10,11 +10,11 @@ cachetools==6.2.1
 certifi==2025.10.5
 charset-normalizer==3.4.4
 cli_exit_tools==1.2.7
-click @ file:///home/conda/feedstock_root/build_artifacts/click_1758270398201/work
+click>=8.0.0
 dataclasses-json==0.6.7
 datasets==4.2.0
 defusedxml==0.7.1
-dependency-groups @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_dependency-groups_1746252388/work
+dependency-groups
 dill==0.4.0
 distro==1.9.0
 dnspython==2.8.0
@@ -80,10 +80,10 @@ langgraph-sdk==0.1.74
 langsmith==0.1.147
 lib-detect-testenv==2.0.8
 litellm==1.78.6
-markdown-it-py @ file:///home/conda/feedstock_root/build_artifacts/markdown-it-py_1754951200865/work
+markdown-it-py>=3.0.0
 MarkupSafe==3.0.3
 marshmallow==3.26.1
-mdurl @ file:///home/conda/feedstock_root/build_artifacts/mdurl_1733255585584/work
+mdurl>=0.1.0
 multidict==6.7.0
 multiprocess==0.70.16
 mypy_extensions==1.1.0
@@ -106,9 +106,9 @@ pyasn1_modules==0.4.2
 pydantic==2.12.3
 pydantic-settings==2.11.0
 pydantic_core==2.41.4
-Pygments @ file:///home/conda/feedstock_root/build_artifacts/pygments_1750615794071/work
+Pygments>=2.0.0
 pyparsing==3.2.5
-pyproject2conda @ file:///home/conda/feedstock_root/build_artifacts/pyproject2conda_1749235695249/work
+pyproject2conda
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 python-multipart==0.0.20
@@ -118,14 +118,14 @@ referencing==0.37.0
 regex==2025.10.23
 requests==2.32.5
 requests-toolbelt==1.0.0
-rich @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_rich_1760026188/work/dist
+rich>=13.0.0
 rich-toolkit==0.15.1
 rignore==0.7.1
 rpds-py==0.27.1
 rsa==4.9.1
 sentry-sdk==2.42.1
 shapely==2.1.2
-shellingham @ file:///home/conda/feedstock_root/build_artifacts/shellingham_1733300899265/work
+shellingham>=1.0.0
 six==1.17.0
 smmap==5.0.2
 sniffio==1.3.1
@@ -135,7 +135,7 @@ tavily-python==0.7.12
 tenacity==8.5.0
 tiktoken==0.12.0
 tokenizers==0.22.1
-tomli @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_tomli_1760014679/work
+tomli>=2.0.0
 tqdm==4.67.1
 tree-sitter==0.21.3
 tree-sitter-languages==1.10.2
@@ -143,7 +143,7 @@ typer==0.20.0
 typer-slim==0.20.0
 typing-inspect==0.9.0
 typing-inspection==0.4.2
-typing_extensions @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_typing_extensions_1756220668/work
+typing_extensions>=4.0.0
 tzdata==2025.2
 unidiff==0.7.5
 uritemplate==4.2.0

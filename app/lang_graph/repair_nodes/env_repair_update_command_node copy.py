@@ -99,7 +99,7 @@ main "$@"
     def __init__(self, model: BaseChatModel, container: BaseContainer, local_path: str):
         self.container = container
         # self.tools = self._init_tools(local_path)
-        # self.model_with_tools = model.bind_tools(self.tools)
+        self.model_with_tools = model.bind_tools(self.tools)
         self.model = model
         self.system_prompt = SystemMessage(self.SYS_PROMPT)
         self.local_path = local_path
