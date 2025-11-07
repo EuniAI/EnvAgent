@@ -6,14 +6,12 @@ with structured tools to systematically search and analyze the codebase Knowledg
 """
 
 import functools
-import logging
-import threading
 from typing import Dict, List
 
 import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import SystemMessage, BaseMessage
+from langchain_core.messages import BaseMessage, SystemMessage
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
@@ -353,34 +351,36 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
 
         return tools
 
-    def _truncate_messages(self, messages: List[BaseMessage], max_tokens: int = 6000) -> List[BaseMessage]:
+    def _truncate_messages(
+        self, messages: List[BaseMessage], max_tokens: int = 6000
+    ) -> List[BaseMessage]:
         """
         Truncate message history to fit within token limits.
-        
+
         Args:
             messages: List of messages to truncate
             max_tokens: Maximum number of tokens to keep (default 6000 to leave room for response)
-            
+
         Returns:
             Truncated list of messages
         """
         if not messages:
             return messages
-            
+
         # Keep system prompt and recent messages
         truncated_messages = []
         current_tokens = 0
-        
+
         # Rough token estimation (1 token ≈ 4 characters for English text)
         def estimate_tokens(text: str) -> int:
             return len(text) // 4
-        
+
         # Always keep the first message (usually system prompt)
         if messages:
             first_msg = messages[0]
             truncated_messages.append(first_msg)
             current_tokens += estimate_tokens(first_msg.content)
-        
+
         # Add messages from the end (most recent first) until we hit the limit
         for msg in reversed(messages[1:]):
             msg_tokens = estimate_tokens(msg.content)
@@ -388,8 +388,10 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
                 break
             truncated_messages.insert(1, msg)  # Insert after system prompt
             current_tokens += msg_tokens
-            
-        self._logger.debug(f"Truncated messages from {len(messages)} to {len(truncated_messages)} messages")
+
+        self._logger.debug(
+            f"Truncated messages from {len(messages)} to {len(truncated_messages)} messages"
+        )
         return truncated_messages
 
     def __call__(self, state: Dict):
@@ -403,10 +405,10 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         """
         # self._logger.debug(f"Context provider messages: {state['context_provider_messages']}")
         message_history = [self.system_prompt] + state["context_provider_messages"]
-        
+
         # Truncate messages if they exceed token limits
         truncated_history = self._truncate_messages(message_history)
-        
+
         try:
             response = self.model_with_tools.invoke(truncated_history)
             self._logger.debug(response)
@@ -414,7 +416,9 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
             return {"context_provider_messages": [response]}
         except Exception as e:
             if "context_length_exceeded" in str(e):
-                self._logger.warning("Context length exceeded, trying with more aggressive truncation")
+                self._logger.warning(
+                    "Context length exceeded, trying with more aggressive truncation"
+                )
                 # Try with even more aggressive truncation
                 truncated_history = self._truncate_messages(message_history, max_tokens=4000)
                 response = self.model_with_tools.invoke(truncated_history)

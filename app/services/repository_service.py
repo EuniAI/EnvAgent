@@ -36,7 +36,7 @@ class RepositoryService(BaseService):
         self.kg_service = kg_service
         self.target_directory = Path(working_dir) / "repositories"
         self.target_directory.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize repository storage
         storage_path = Path(working_dir) / "repository_metadata.json"
         self.repository_storage = RepositoryStorage(storage_path)
@@ -84,47 +84,53 @@ class RepositoryService(BaseService):
         git_repo = GitRepository()
         git_repo.from_local_repository(local_path)
         return git_repo
-    
+
     def get_or_create_repository(
         self, github_token: str, https_url: str, commit_id: Optional[str] = None
     ) -> tuple[Path, int, bool]:
         """Get existing repository or create new one with knowledge graph.
-        
+
         This method implements the repository-based logic:
         - If repository with same URL and commit_id exists, return existing path and KG root node ID
         - Otherwise, clone repository, build knowledge graph, and save metadata
-        
+
         Args:
             github_token: GitHub access token for authentication.
             https_url: HTTPS URL of the GitHub repository.
             commit_id: Optional specific commit to check out.
-            
+
         Returns:
             Tuple of (repository_path, kg_root_node_id, is_new_repository)
         """
         self.logger.info(f"Checking for existing repository: {https_url} (commit: {commit_id})")
-        
+
         # Check if repository already exists
-        existing_repo = self.repository_storage.get_repository_by_url_and_commit_id(https_url, commit_id)
-        
+        existing_repo = self.repository_storage.get_repository_by_url_and_commit_id(
+            https_url, commit_id
+        )
+
         if existing_repo:
             repo_path = Path(existing_repo.playground_path)
             if repo_path.exists():
-                self.logger.info(f"Found existing repository at {repo_path} with KG root node ID: {existing_repo.kg_root_node_id}")
+                self.logger.info(
+                    f"Found existing repository at {repo_path} with KG root node ID: {existing_repo.kg_root_node_id}"
+                )
                 return repo_path, existing_repo.kg_root_node_id, False
             else:
-                self.logger.warning(f"Repository metadata exists but path {repo_path} not found. Removing stale metadata.")
+                self.logger.warning(
+                    f"Repository metadata exists but path {repo_path} not found. Removing stale metadata."
+                )
                 self.repository_storage.delete_repository(https_url, commit_id)
-        
+
         # Repository doesn't exist or path is invalid, create new one
         self.logger.info(f"Creating new repository for {https_url} (commit: {commit_id})")
-        
+
         # Clone repository
         repo_path = self.clone_github_repo(github_token, https_url, commit_id)
-        
+
         # Build and save knowledge graph
         kg_root_node_id = self.kg_service.build_and_save_knowledge_graph(repo_path)
-        
+
         # Save repository metadata
         repository = Repository(
             url=https_url,
@@ -136,67 +142,75 @@ class RepositoryService(BaseService):
             kg_chunk_overlap=self.kg_service.chunk_overlap,
         )
         self.repository_storage.save_repository(repository)
-        
-        self.logger.info(f"Successfully created repository at {repo_path} with KG root node ID: {kg_root_node_id}")
+
+        self.logger.info(
+            f"Successfully created repository at {repo_path} with KG root node ID: {kg_root_node_id}"
+        )
         return repo_path, kg_root_node_id, True
-    
+
     def clean_repository(self, https_url: str, commit_id: Optional[str] = None):
         """Clean up repository files and metadata.
-        
+
         Args:
             https_url: Repository URL
             commit_id: Commit ID
         """
-        repository = self.repository_storage.get_repository_by_url_and_commit_id(https_url, commit_id)
+        repository = self.repository_storage.get_repository_by_url_and_commit_id(
+            https_url, commit_id
+        )
         if repository:
             repo_path = Path(repository.playground_path)
             if repo_path.exists():
                 self.logger.info(f"Cleaning up repository at {repo_path}")
                 shutil.rmtree(repo_path)
-                
+
                 # Also remove parent directory if it's empty
                 try:
                     repo_path.parent.rmdir()
                 except OSError:
                     # Directory not empty, that's fine
                     pass
-            
+
             # Clean up knowledge graph
             self.kg_service.clear_kg(repository.kg_root_node_id)
-            
+
             # Remove metadata
             self.repository_storage.delete_repository(https_url, commit_id)
-            self.logger.info(f"Successfully cleaned up repository: {https_url} (commit: {commit_id})")
-    
+            self.logger.info(
+                f"Successfully cleaned up repository: {https_url} (commit: {commit_id})"
+            )
+
     def delete_repository(self, https_url: str, commit_id: Optional[str] = None) -> bool:
         """Delete a specific repository from the database and filesystem.
-        
+
         This method completely removes a repository including:
         - Local cloned files
         - Knowledge graph from Neo4j
         - Repository metadata
-        
+
         Args:
             https_url: Repository URL
             commit_id: Commit ID (None for latest commit)
-            
+
         Returns:
             True if repository was found and deleted, False if not found
         """
         self.logger.info(f"Attempting to delete repository: {https_url} (commit: {commit_id})")
-        
+
         # Check if repository exists
-        repository = self.repository_storage.get_repository_by_url_and_commit_id(https_url, commit_id)
+        repository = self.repository_storage.get_repository_by_url_and_commit_id(
+            https_url, commit_id
+        )
         if not repository:
             self.logger.warning(f"Repository not found: {https_url} (commit: {commit_id})")
             return False
-        
+
         # Clean up files
         repo_path = Path(repository.playground_path)
         if repo_path.exists():
             self.logger.info(f"Removing repository files at {repo_path}")
             shutil.rmtree(repo_path)
-            
+
             # Also remove parent directory if it's empty
             try:
                 repo_path.parent.rmdir()
@@ -206,37 +220,41 @@ class RepositoryService(BaseService):
                 pass
         else:
             self.logger.warning(f"Repository path does not exist: {repo_path}")
-        
+
         # Clean up knowledge graph from Neo4j
         try:
             self.kg_service.clear_kg(repository.kg_root_node_id)
-            self.logger.info(f"Removed knowledge graph with root node ID: {repository.kg_root_node_id}")
+            self.logger.info(
+                f"Removed knowledge graph with root node ID: {repository.kg_root_node_id}"
+            )
         except Exception as e:
             self.logger.error(f"Error removing knowledge graph: {e}")
-        
+
         # Remove metadata
         deleted = self.repository_storage.delete_repository(https_url, commit_id)
         if deleted:
             self.logger.info(f"Successfully deleted repository: {https_url} (commit: {commit_id})")
         else:
-            self.logger.error(f"Failed to delete repository metadata: {https_url} (commit: {commit_id})")
-        
+            self.logger.error(
+                f"Failed to delete repository metadata: {https_url} (commit: {commit_id})"
+            )
+
         return deleted
-    
+
     def list_repositories(self) -> list[Repository]:
         """List all repositories in the database.
-        
+
         Returns:
             List of all Repository objects
         """
         return self.repository_storage._load_repositories()
-    
+
     def find_repositories_by_url(self, https_url: str) -> list[Repository]:
         """Find all repositories with the given URL (different commits).
-        
+
         Args:
             https_url: Repository URL to search for
-            
+
         Returns:
             List of Repository objects with matching URL
         """

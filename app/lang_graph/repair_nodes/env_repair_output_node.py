@@ -1,18 +1,16 @@
 """节点：根据分析结果生成单步修复命令"""
 
-import logging
-import threading
 from typing import Dict
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.utils.logger_manager import get_thread_logger
 
 
 class EnvRepairOutputNode:
     """根据分析结果生成单步修复命令"""
-    
+
     SYS_PROMPT = """\
 你是一个环境修复命令生成专家。你的任务是生成单一的下一条 shell 命令来修复环境问题。
 
@@ -44,16 +42,16 @@ class EnvRepairOutputNode:
     def __call__(self, state: Dict):
         env_implement_result = state.get("env_implement_result", [])
         error_analysis = state.get("error_analysis", "")
-        
+
         # 确保是列表类型
         if not isinstance(env_implement_result, list):
             env_implement_result = []
-        
+
         # 获取最新的结果（最后一个）
         latest_env_result = env_implement_result[-1] if len(env_implement_result) > 0 else {}
-        
+
         self._logger.info("生成修复命令...")
-        
+
         # 组合查询内容
         query = f"""\
 ENV IMPLEMENT OUTPUT (Latest):
@@ -68,18 +66,19 @@ ENV IMPLEMENT OUTPUT (Latest):
 
 请根据错误分析生成一条修复命令。
 """
-        
+
         message_history = [self.system_prompt, HumanMessage(query)]
         response = self.model.invoke(message_history)
-        
-        repair_command = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+
+        repair_command = (
+            response.content.strip() if hasattr(response, "content") else str(response).strip()
+        )
         # 移除可能的代码框标记
         repair_command = repair_command.replace("```bash", "").replace("```", "").strip()
-        repair_command = repair_command.replace('"', '').replace("'", "").strip()
-        
+        repair_command = repair_command.replace('"', "").replace("'", "").strip()
+
         self._logger.info(f"生成的修复命令: {repair_command}")
-        
+
         return {
             "env_repair_command": repair_command,
         }
-

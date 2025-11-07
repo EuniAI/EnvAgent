@@ -1,5 +1,3 @@
-import logging
-import threading
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -137,33 +135,46 @@ If additional context is needed:
         if response.refined_query:
             # Check if this is a repetitive query by looking at previous messages
             previous_messages = state.get("context_provider_messages", [])
-            
+
             # Check for repetitive patterns in the refined query
             query_lower = response.refined_query.lower()
             repetitive_keywords = [
-                "dockerfile", "pom.xml", "package.json", "requirements.txt", 
-                "makefile", "cmakelists.txt", "build.gradle", ".env", "config"
+                "dockerfile",
+                "pom.xml",
+                "package.json",
+                "requirements.txt",
+                "makefile",
+                "cmakelists.txt",
+                "build.gradle",
+                ".env",
+                "config",
             ]
-            
+
             # Count how many times we've searched for these common files
             search_count = 0
             for msg in previous_messages:
-                if hasattr(msg, 'content'):
+                if hasattr(msg, "content"):
                     msg_content = msg.content.lower()
                     for keyword in repetitive_keywords:
                         if keyword in msg_content:
                             search_count += 1
-            
+
             # If we've searched for common files more than 3 times, stop
             if search_count > 3:
-                self._logger.info(f"Detected {search_count} repetitive file searches, stopping to avoid infinite loop")
+                self._logger.info(
+                    f"Detected {search_count} repetitive file searches, stopping to avoid infinite loop"
+                )
                 return {"refined_query": ""}
-            
+
             # If we've already made multiple queries and this one is asking for the same things, stop
-            if len(previous_messages) > 2 and any(keyword in query_lower for keyword in repetitive_keywords):
-                self._logger.info("Detected repetitive file search queries, stopping to avoid infinite loop")
+            if len(previous_messages) > 2 and any(
+                keyword in query_lower for keyword in repetitive_keywords
+            ):
+                self._logger.info(
+                    "Detected repetitive file search queries, stopping to avoid infinite loop"
+                )
                 return {"refined_query": ""}
-            
+
             state_update["context_provider_messages"] = [
                 HumanMessage(content=response.refined_query)
             ]

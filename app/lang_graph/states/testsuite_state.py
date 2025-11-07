@@ -1,11 +1,7 @@
-from pathlib import Path
-from typing import Annotated, Mapping, Sequence, TypedDict
+from typing import Annotated, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-
-from app.models.context import Context
-
 
 # class TestsuiteState(TypedDict):
 #     max_refined_query_loop: int
@@ -25,6 +21,7 @@ from app.models.context import Context
 #     # reproduced_bug_failure_log: str
 #     # reproduced_bug_file: Path
 #     # reproduced_bug_commands: Sequence[str]
+
 
 class TestsuiteState(TypedDict):
     query: str

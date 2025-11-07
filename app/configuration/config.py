@@ -1,6 +1,8 @@
 from typing import Literal
-from pydantic import Field, field_validator, BaseModel
+
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class ASTNodeConfig(BaseModel):
     max_ast_depth: int = Field(gt=0, description="Maximum AST depth to traverse")
@@ -10,6 +12,7 @@ class ASTNodeConfig(BaseModel):
     save_declare_depth: list[int] | None = Field(
         default=None, description="Declare depths to save (None means save all)"
     )
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -46,9 +49,7 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str
 
     # Model parameters
-    MAX_INPUT_TOKENS: int
     TEMPERATURE: float
-    MAX_OUTPUT_TOKENS: int
 
 
 settings = Settings()

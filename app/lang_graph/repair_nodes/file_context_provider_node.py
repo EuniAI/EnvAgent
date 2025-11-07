@@ -6,8 +6,6 @@ with structured tools to systematically search and analyze the codebase Knowledg
 """
 
 import functools
-import logging
-import threading
 from typing import Dict
 
 import neo4j
@@ -125,9 +123,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         self.root_node_id = kg.root_node_id
         self.max_token_per_result = max_token_per_result
 
-        self.system_prompt = SystemMessage(
-            self.SYS_PROMPT.format(file_tree=kg.get_file_tree())
-        )
+        self.system_prompt = SystemMessage(self.SYS_PROMPT.format(file_tree=kg.get_file_tree()))
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
         self._logger, _file_handler = get_thread_logger(__name__)

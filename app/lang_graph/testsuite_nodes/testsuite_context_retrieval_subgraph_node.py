@@ -1,5 +1,3 @@
-import logging
-import threading
 from typing import Dict, Sequence
 
 import neo4j
@@ -23,7 +21,7 @@ class ContextRetrievalSubgraphNode:
         context_key_name: str,
     ):
         self._logger, _file_handler = get_thread_logger(__name__)
-        
+
         self.context_retrieval_subgraph = ContextRetrievalSubgraph(
             model=model,
             kg=kg,

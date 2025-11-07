@@ -1,5 +1,5 @@
 import functools
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
 import neo4j
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -25,7 +25,6 @@ from app.lang_graph.nodes.git_reset_node import GitResetNode
 from app.lang_graph.nodes.reset_messages_node import ResetMessagesNode
 from app.lang_graph.nodes.update_container_node import UpdateContainerNode
 from app.lang_graph.states.bug_reproduction_state import BugReproductionState
-
 
 
 class BugReproductionSubgraph:

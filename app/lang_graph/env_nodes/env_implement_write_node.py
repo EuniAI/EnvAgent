@@ -1,6 +1,4 @@
 import functools
-import logging
-import threading
 
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -12,7 +10,7 @@ from app.utils.logger_manager import get_thread_logger
 
 
 class EnvImplementWriteNode:
-    SYS_PROMPT = '''\
+    SYS_PROMPT = """\
 You are a bash scripting expert who creates optimized environment setup scripts for various programming languages and frameworks.
 Given project environment context and configuration files, create a complete executable bash script that can successfully set up and configure the project environment, especially designed to run inside Docker containers.
 
@@ -153,7 +151,7 @@ main "$@"
    - Configure permissions and ownership
    - Provide clear usage instructions
 </thought_process>
-'''
+"""
 
     def __init__(self, model: BaseChatModel, local_path: str):
         self.tools = self._init_tools(local_path)

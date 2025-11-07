@@ -1,5 +1,5 @@
 import functools
-from typing import Dict, Sequence
+from typing import Dict
 
 import neo4j
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -7,13 +7,17 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import TestsuiteContextExtractionNode
-from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import TestsuiteContextProviderNode
-from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import TestsuiteContextQueryMessageNode
-from app.lang_graph.testsuite_nodes.testsuite_context_refine_node import TestsuiteContextRefineNode
-from app.lang_graph.nodes.reset_messages_node import ResetMessagesNode
 from app.lang_graph.states.testsuite_state import TestsuiteState
-from app.models.context import Context
+from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import (
+    TestsuiteContextExtractionNode,
+)
+from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import (
+    TestsuiteContextProviderNode,
+)
+from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import (
+    TestsuiteContextQueryMessageNode,
+)
+from app.lang_graph.testsuite_nodes.testsuite_context_refine_node import TestsuiteContextRefineNode
 
 
 class TestsuiteSubgraph:
@@ -83,7 +87,9 @@ class TestsuiteSubgraph:
         workflow = StateGraph(TestsuiteState)
 
         # Add all nodes to the graph
-        workflow.add_node("testsuite_context_query_message_node", testsuite_context_query_message_node)
+        workflow.add_node(
+            "testsuite_context_query_message_node", testsuite_context_query_message_node
+        )
         workflow.add_node("testsuite_context_provider_node", testsuite_context_provider_node)
         workflow.add_node("testsuite_context_provider_tools", testsuite_context_provider_tools)
         workflow.add_node("testsuite_context_extraction_node", testsuite_context_extraction_node)
@@ -111,7 +117,8 @@ class TestsuiteSubgraph:
         # If refined_query is non-empty AND no command found yet, loop back to provider; else terminate
         workflow.add_conditional_edges(
             "testsuite_context_refine_node",
-            lambda state: bool(state["testsuite_refined_query"]) and not bool(state.get("testsuite_command", "")),
+            lambda state: bool(state["testsuite_refined_query"])
+            and not bool(state.get("testsuite_command", "")),
             {True: "testsuite_context_provider_node", False: END},
         )
 

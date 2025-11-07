@@ -1,17 +1,15 @@
 import functools
-import logging
-import threading
 from typing import Dict
 
 import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.tools import graph_traversal
-from app.utils.logger_manager import get_thread_logger
 from app.tools.web_search import WebSearchTool
+from app.utils.logger_manager import get_thread_logger
+
 
 class EnvRepairWriteNode:
     SYS_PROMPT = """\

@@ -1,9 +1,7 @@
-import logging
-import threading
 
 from app.lang_graph.states.bug_reproduction_state import BugReproductionState
-from app.utils.issue_util import format_issue_info
 from app.utils.logger_manager import get_thread_logger
+
 
 class BugReproductionContextMessageNode:
     BUG_REPRODUCING_QUERY = """\
@@ -34,7 +32,7 @@ Find the test commands that can verify this codebase works correctly.
 """
 
     def __init__(self):
-        self._logger, _file_handler  = get_thread_logger(__name__)
+        self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: BugReproductionState):
         bug_reproducing_query = self.BUG_REPRODUCING_QUERY

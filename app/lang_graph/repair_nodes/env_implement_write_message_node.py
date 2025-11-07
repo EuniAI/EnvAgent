@@ -1,5 +1,3 @@
-import logging
-import threading
 
 from langchain_core.messages import HumanMessage
 
@@ -60,5 +58,7 @@ Generate a corrected bash script that addresses these issues.
 
     def __call__(self, state: EnvImplementState):
         human_message = self.format_human_message(state)
-        self._logger.debug(f"Sending bash script generation message to EnvImplementWriteNode:\n{human_message}")
+        self._logger.debug(
+            f"Sending bash script generation message to EnvImplementWriteNode:\n{human_message}"
+        )
         return {"env_implement_write_messages": [human_message]}

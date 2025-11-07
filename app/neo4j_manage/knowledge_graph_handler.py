@@ -4,22 +4,22 @@ import logging
 from typing import Mapping, Sequence
 
 from neo4j import GraphDatabase, ManagedTransaction
-from tqdm import tqdm
 
+from app.configuration.config import ASTNodeConfig
 from app.graph.graph_types import (
     KnowledgeGraphNode,
     Neo4jASTNode,
+    Neo4jDeclareNode,
     Neo4jFileNode,
     Neo4jHasASTEdge,
+    Neo4jHasDeclareEdge,
     Neo4jHasFileEdge,
     Neo4jHasTextEdge,
     Neo4jNextChunkEdge,
     Neo4jTextNode,
-    Neo4jDeclareNode,
-    Neo4jHasDeclareEdge
 )
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.configuration.config import ASTNodeConfig
+
 
 class KnowledgeGraphHandler:
     """The handler to writing the Knowledge graph to neo4j."""
@@ -89,7 +89,9 @@ class KnowledgeGraphHandler:
             text_nodes_batch = text_nodes[i : i + self.batch_size]
             tx.run(query, text_nodes=text_nodes_batch)
 
-    def _write_declare_nodes(self, tx: ManagedTransaction, declare_nodes: Sequence[Neo4jDeclareNode]):
+    def _write_declare_nodes(
+        self, tx: ManagedTransaction, declare_nodes: Sequence[Neo4jDeclareNode]
+    ):
         """Write Neo4jDeclareNode to neo4j."""
         self._logger.debug(f"Writing {len(declare_nodes)} DeclareNode to neo4j")
         query = """
@@ -144,7 +146,7 @@ class KnowledgeGraphHandler:
         for i in range(0, len(has_text_edges), self.batch_size):
             has_text_edges_batch = has_text_edges[i : i + self.batch_size]
             tx.run(query, edges=has_text_edges_batch)
-    
+
     def _write_has_declare_edges(
         self, tx: ManagedTransaction, has_declare_edges: Sequence[Neo4jHasDeclareEdge]
     ):

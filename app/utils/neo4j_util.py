@@ -49,7 +49,7 @@ def neo4j_data_for_context_generator(
             )
             yield context
             continue
-            
+
         search_result_keys = search_result.keys()
         # Skip if the result has no keys or only contains the "FileNode" key
         if len(search_result_keys) == 1:
@@ -58,7 +58,7 @@ def neo4j_data_for_context_generator(
         preview_content = None
         preview_start_line = None
         preview_end_line = None
-        
+
         preview = search_result.get("preview")
         if isinstance(preview, dict):
             preview_content = preview.get("text")
@@ -68,7 +68,7 @@ def neo4j_data_for_context_generator(
             preview_content = preview
             preview_start_line = 1  # Default start line for text content
             preview_end_line = len(preview.splitlines())  # Calculate end line
-        
+
         context = Context(
             relative_path=search_result["FileNode"]["relative_path"],
             content=(
@@ -86,7 +86,7 @@ def neo4j_data_for_context_generator(
             or search_result.get("SelectedLines", {}).get("end_line")
             or preview_end_line,
         )
-        
+
         yield context
 
 

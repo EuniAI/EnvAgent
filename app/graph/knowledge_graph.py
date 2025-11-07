@@ -25,6 +25,8 @@ from typing import Mapping, Optional, Sequence
 
 import igittigitt
 
+# Create astnode_args object with the provided max_ast_depth
+from app.configuration.config import ASTNodeConfig
 from app.graph.file_graph_builder import FileGraphBuilder
 from app.graph.graph_types import (
     ASTNode,
@@ -34,20 +36,18 @@ from app.graph.graph_types import (
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,
     Neo4jASTNode,
-    Neo4jFileNode,
     Neo4jDeclareNode,
+    Neo4jFileNode,
     Neo4jHasASTEdge,
+    Neo4jHasDeclareEdge,
     Neo4jHasFileEdge,
     Neo4jHasTextEdge,
-    Neo4jHasDeclareEdge,
     Neo4jNextChunkEdge,
     Neo4jParentOfEdge,
     Neo4jTextNode,
     TextNode,
 )
 
-# Create astnode_args object with the provided max_ast_depth
-from app.configuration.config import ASTNodeConfig
 
 class KnowledgeGraph:
     def __init__(
@@ -178,7 +178,9 @@ class KnowledgeGraph:
     ):
         """Creates a knowledge graph from nodes and edges stored in neo4j."""
         # All nodes
-        knowledge_graph_nodes = [x for x in itertools.chain(file_nodes, ast_nodes, text_nodes, declare_nodes)]
+        knowledge_graph_nodes = [
+            x for x in itertools.chain(file_nodes, ast_nodes, text_nodes, declare_nodes)
+        ]
 
         # All edges
         node_id_to_node = {x.node_id: x for x in knowledge_graph_nodes}
@@ -233,7 +235,12 @@ class KnowledgeGraph:
         knowledge_graph_edges = [
             x
             for x in itertools.chain(
-                parent_of_edges, has_file_edges, has_ast_edges, has_text_edges, has_declare_edges, next_chunk_edges
+                parent_of_edges,
+                has_file_edges,
+                has_ast_edges,
+                has_text_edges,
+                has_declare_edges,
+                next_chunk_edges,
             )
         ]
 
@@ -246,8 +253,6 @@ class KnowledgeGraph:
         if root_node is None:
             raise ValueError(f"Node with node_id {root_node_id} not found.")
 
-        
-        
         return cls(
             astnode_args=astnode_args,
             chunk_size=chunk_size,
@@ -357,8 +362,9 @@ class KnowledgeGraph:
         file_node_adjacency_dict = defaultdict(list)
         for has_file_edge in self.get_has_file_edges():
             # 确保只处理文件节点之间的关系
-            if (isinstance(has_file_edge.source.node, FileNode) and 
-                isinstance(has_file_edge.target.node, FileNode)):
+            if isinstance(has_file_edge.source.node, FileNode) and isinstance(
+                has_file_edge.target.node, FileNode
+            ):
                 file_node_adjacency_dict[has_file_edge.source].append(has_file_edge.target)
         return file_node_adjacency_dict
 
@@ -379,7 +385,9 @@ class KnowledgeGraph:
 
     def get_declare_nodes(self) -> Sequence[KnowledgeGraphNode]:
         return [
-            kg_node for kg_node in self._knowledge_graph_nodes if isinstance(kg_node.node, DeclareNode)
+            kg_node
+            for kg_node in self._knowledge_graph_nodes
+            if isinstance(kg_node.node, DeclareNode)
         ]
 
     def get_has_ast_edges(self) -> Sequence[KnowledgeGraphEdge]:
@@ -402,7 +410,7 @@ class KnowledgeGraph:
             for kg_edge in self._knowledge_graph_edges
             if kg_edge.type == KnowledgeGraphEdgeType.has_text
         ]
-    
+
     def get_has_declare_edges(self) -> Sequence[KnowledgeGraphEdge]:
         return [
             kg_edge

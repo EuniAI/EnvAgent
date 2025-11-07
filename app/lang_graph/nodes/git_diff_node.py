@@ -6,8 +6,6 @@ fixes. It uses the GitRepository class to access Git operations and generate pat
 output.
 """
 
-import logging
-import threading
 from typing import Dict, Optional
 
 from app.git_manage.git_repository import GitRepository

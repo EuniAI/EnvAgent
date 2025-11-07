@@ -35,6 +35,7 @@ class ASTNode:
     text: str
     depth: int
 
+
 @dataclasses.dataclass(frozen=True)
 class DeclareNode:
     """A node representing a declaration node.
@@ -52,6 +53,7 @@ class DeclareNode:
     end_line: int
     text: str
     depth: int
+
 
 @dataclasses.dataclass(frozen=True)
 class TextNode:
@@ -78,7 +80,9 @@ class KnowledgeGraphNode:
     node_id: int
     node: Union[FileNode, ASTNode, TextNode, DeclareNode]
 
-    def to_neo4j_node(self) -> Union["Neo4jFileNode", "Neo4jASTNode", "Neo4jTextNode", "Neo4jDeclareNode"]:
+    def to_neo4j_node(
+        self,
+    ) -> Union["Neo4jFileNode", "Neo4jASTNode", "Neo4jTextNode", "Neo4jDeclareNode"]:
         """Convert the KnowledgeGraphNode into a Neo4j node format."""
         match self.node:
             case FileNode():
@@ -136,7 +140,7 @@ class KnowledgeGraphNode:
                 depth=node["depth"],
             ),
         )
-    
+
     @classmethod
     def from_neo4j_declare_node(cls, node: "Neo4jDeclareNode") -> "KnowledgeGraphNode":
         return cls(
@@ -270,6 +274,7 @@ class Neo4jDeclareNode(TypedDict):
     end_line: int
     text: str
     depth: int
+
 
 class Neo4jHasFileEdge(TypedDict):
     source: Neo4jFileNode

@@ -1,20 +1,21 @@
 """Node: Update env_implement_command, integrate repair commands"""
 
 import functools
+import os
 from typing import Dict
 
 from langchain.tools import StructuredTool
-from app.utils.logger_manager import get_thread_logger
-from app.container.base_container import BaseContainer
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.container.base_container import BaseContainer
 from app.tools import file_operation
-import os
+from app.utils.logger_manager import get_thread_logger
 
 
 class EnvRepairTestUpdateCommandNode:
     """Update env_implement_command, integrate repair commands"""
-    
+
     SYS_PROMPT = """\
 You are a bash scripting expert and environment command update specialist. Modify or update environment implementation commands based on the repair command list, creating optimized environment setup scripts that follow best practices.
 
@@ -138,8 +139,6 @@ main "$@"
 
         return tools
 
-    
-
     def _extract_file_path(self, command: str) -> str:
         """Extract file path from command"""
         if "bash " in command:
@@ -150,42 +149,40 @@ main "$@"
         """Extract command content from Context objects"""
         if not isinstance(env_repair_commands, list):
             return []
-        
+
         repair_list = []
         for cmd in env_repair_commands:
-            if hasattr(cmd, 'content'):
+            if hasattr(cmd, "content"):
                 repair_list.append(cmd.content)
             elif isinstance(cmd, str):
                 repair_list.append(cmd)
-            elif isinstance(cmd, dict) and 'content' in cmd:
-                repair_list.append(cmd['content'])
+            elif isinstance(cmd, dict) and "content" in cmd:
+                repair_list.append(cmd["content"])
         return repair_list
 
     def _is_file_path(self, command: str) -> bool:
         """Determine if it's a file path"""
         return isinstance(command, str) and (
-            command.endswith('.sh') or 
-            command.startswith('/') or 
-            command.startswith('./')
+            command.endswith(".sh") or command.startswith("/") or command.startswith("./")
         )
-
 
     def _write_file_to_container(self, file_path: str, content: str) -> bool:
         """Write content to container file"""
         try:
-            write_command = f'cat > "{file_path}" <<\'EOF\'\n{content}\nEOF'
+            write_command = f"cat > \"{file_path}\" <<'EOF'\n{content}\nEOF"
             self.container.execute_command(write_command)
             self._logger.info(f"File updated successfully: {file_path}")
             return True
         except Exception as e:
             self._logger.error(f"Error writing file {file_path}: {str(e)}")
             return False
+
     def _write_file(self, file_path: str, content: str) -> bool:
         """Write content to file"""
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
-            with open(file_path, 'w') as f:
+            with open(file_path, "w") as f:
                 f.write(content)
                 return True
         except Exception as e:
@@ -199,13 +196,13 @@ main "$@"
         env_implement_result = state.get("env_implement_result", {})
         env_error_analysis = state.get("env_error_analysis", "")
         env_repair_commands = state.get("env_repair_command", [])
-        
+
         # Extract repair commands
         repair_command_list = self._extract_repair_commands(env_repair_commands)
         if not repair_command_list:
             self._logger.warning("No repair commands found, keeping unchanged")
             return {}
-        
+
         # Extract file path from command
         script_file_path = None
         if env_command and "bash " in env_command:
@@ -213,12 +210,14 @@ main "$@"
             # Remove container path prefix if exists, get relative path
             if script_file_path.startswith("/app/"):
                 script_file_path = script_file_path.replace("/app/", "")
-        
+
         # Build prompt
         repair_commands_text = "\n".join([f"- {cmd}" for cmd in repair_command_list])
         file_info = f"Script File Path: {script_file_path}\n\n" if script_file_path else ""
-        error_analysis_section = f"ENV ERROR ANALYSIS:\n```\n{env_error_analysis}\n```\n\n" if env_error_analysis else ""
-        
+        error_analysis_section = (
+            f"ENV ERROR ANALYSIS:\n```\n{env_error_analysis}\n```\n\n" if env_error_analysis else ""
+        )
+
         # Build execution result section
         result_section = ""
         if env_implement_result:
@@ -239,7 +238,7 @@ main "$@"
                 ```
 
                 """
-        
+
         prompt_text = f"""\
             {file_info}{error_analysis_section}{result_section}CURRENT SCRIPT CONTENT:
             ```
@@ -267,30 +266,30 @@ main "$@"
                - Add appropriate log output to track execution progress
             3. If the original script already has a good structure, try to preserve it; integrate repair commands appropriately.
         """
-        
+
         # Build message history
         message_history = [self.system_prompt, HumanMessage(prompt_text)]
-        
+
         # Use model with tools to generate updated command
         self._logger.info("Using model with tools to update environment implementation command...")
         response = self.model.invoke(message_history)
         self._logger.debug(response)
-        
+
         # Extract updated file content from tool calls if available
         updated_file_path = "prometheus_setup_repair.sh"
         updated_content = response.content
-        
+
         # If we got content from tool call, update the command
-        self._write_file(os.path.join(self.local_path, updated_file_path), updated_content)  # 本地路径
-        
+        self._write_file(
+            os.path.join(self.local_path, updated_file_path), updated_content
+        )  # 本地路径
+
         env_implement_command = {
-            "command": f'bash /app/{updated_file_path}',  # container 路径
+            "command": f"bash /app/{updated_file_path}",  # container 路径
             "file_content": updated_content,
         }
         env_repair_command = []
         return {
             "env_implement_command": env_implement_command,
-            "env_repair_command": env_repair_command
+            "env_repair_command": env_repair_command,
         }
-        
-        

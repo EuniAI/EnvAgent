@@ -1,10 +1,7 @@
-import logging
-import threading
 
 from langchain_core.messages import HumanMessage
 
 from app.lang_graph.states.bug_reproduction_state import BugReproductionState
-from app.utils.issue_util import format_issue_info
 from app.utils.logger_manager import get_thread_logger
 
 

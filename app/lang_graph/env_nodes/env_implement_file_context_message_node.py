@@ -1,9 +1,7 @@
-import logging
-import threading
 
-from app.models.context import Context
 from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.utils.logger_manager import get_thread_logger
+
 
 class EnvImplementFileContextMessageNode:
     ENV_IMPLEMENT_FILE_CONTEXT_QUERY = """\
@@ -119,12 +117,14 @@ Find the most relevant environment configuration files with complete context for
 
     def __init__(self, debug_mode: bool):
         self.debug_mode = debug_mode
-        self._logger, _file_handler  = get_thread_logger(__name__)
+        self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: EnvImplementState):
         env_implement_file_context_query = self.ENV_IMPLEMENT_FILE_CONTEXT_QUERY
-        self._logger.debug(f"Sending environment configuration query to context provider subgraph:\n{env_implement_file_context_query}")
-        
+        self._logger.debug(
+            f"Sending environment configuration query to context provider subgraph:\n{env_implement_file_context_query}"
+        )
+
         return {
             "env_implement_file_context_query": env_implement_file_context_query,
         }

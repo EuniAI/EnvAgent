@@ -21,7 +21,6 @@ class LLMService(BaseService):
         vertex_ai_project_id: Optional[str] = None,
         vertex_ai_location: Optional[str] = "us-central1",
         temperature: float = 0.0,
-        max_output_tokens: int = 15000,
     ):
         self.advanced_model = get_model(
             advanced_model_name,
@@ -31,8 +30,7 @@ class LLMService(BaseService):
             gemini_api_key,
             vertex_ai_project_id,
             vertex_ai_location,
-            0.0,
-            max_output_tokens,
+            temperature,
         )
         self.base_model = get_model(
             base_model_name,
@@ -43,7 +41,6 @@ class LLMService(BaseService):
             vertex_ai_project_id,
             vertex_ai_location,
             temperature,
-            max_output_tokens,
         )
 
 
@@ -56,14 +53,12 @@ def get_model(
     vertex_ai_project_id: Optional[str] = None,
     vertex_ai_location: Optional[str] = None,
     temperature: float = 0.0,
-    max_output_tokens: int = 15000,
 ) -> BaseChatModel:
     if "claude" in model_name:
         return ChatAnthropic(
             model_name=model_name,
             api_key=anthropic_api_key,
             temperature=temperature,
-            max_tokens_to_sample=max_output_tokens,
             max_retries=3,
         )
     elif "gemini" in model_name and vertex_ai_project_id:
@@ -73,7 +68,6 @@ def get_model(
             project_id=vertex_ai_project_id,
             location=vertex_ai_location,
             temperature=temperature,
-            max_output_tokens=max_output_tokens,
             max_retries=3,
         )
     elif "gemini" in model_name:
@@ -82,7 +76,6 @@ def get_model(
             model=model_name,
             api_key=gemini_api_key,
             temperature=temperature,
-            max_tokens=max_output_tokens,
             max_retries=3,
         )
     else:
@@ -94,6 +87,5 @@ def get_model(
             api_key=openai_format_api_key,
             base_url=openai_format_base_url,
             temperature=temperature,
-            max_tokens=max_output_tokens,
             max_retries=3,
         )

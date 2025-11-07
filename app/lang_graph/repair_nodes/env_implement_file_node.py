@@ -1,7 +1,4 @@
 import functools
-import logging
-import re
-import threading
 from pathlib import Path
 
 from langchain.tools import StructuredTool
@@ -13,6 +10,7 @@ from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.tools import file_operation
 from app.utils.lang_graph_util import get_last_message_content
 from app.utils.logger_manager import get_thread_logger
+
 
 class EnvImplementFileNode:
     SYS_PROMPT = """\
@@ -88,7 +86,6 @@ class EnvImplementFileNode:
             )
         )
 
-
     def __call__(self, state: EnvImplementState):
         message_history = [self.system_prompt, self.format_human_message(state)] + state[
             "env_implement_file_messages"
@@ -96,18 +93,18 @@ class EnvImplementFileNode:
 
         response = self.model_with_tools.invoke(message_history)
         self._logger.debug(response)
-        
+
         # Prepare the return dictionary
         result = {"env_implement_file_messages": [response]}
-        
+
         # Check if there are any tool call responses in the current messages
         # (This happens when we're called after tool execution)
         file_path = ""
         for tool_call in response.tool_calls:
-            if tool_call['name'] == file_operation.create_file.__name__:
-                file_path = tool_call['args']["relative_path"]
+            if tool_call["name"] == file_operation.create_file.__name__:
+                file_path = tool_call["args"]["relative_path"]
                 break
-        
+
         # If we found a file path, add it to the state
         if file_path:
             # Convert relative path to Path object for dockerfile_path
@@ -115,5 +112,5 @@ class EnvImplementFileNode:
             self._logger.info(f"Extracted bash script path: {file_path}")
         else:
             self._logger.debug("No file path found in current messages")
-        
+
         return result

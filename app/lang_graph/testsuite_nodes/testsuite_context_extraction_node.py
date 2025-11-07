@@ -1,17 +1,13 @@
-import logging
-import threading
-from typing import Sequence
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from app.lang_graph.states.testsuite_state import TestsuiteState
-from app.utils.logger_manager import get_thread_logger
 from app.utils.lang_graph_util import (
     extract_last_tool_messages,
-    transform_tool_messages_to_str,
 )
+from app.utils.logger_manager import get_thread_logger
 
 SYS_PROMPT = """
 You are a command extraction agent. From the provided README/documentation snippets, extract as many runnable shell commands as possible that can verify the environment setup.
@@ -40,8 +36,12 @@ Task: Output multiple safe, quick verification shell commands from the snippets 
 
 
 class TestsuiteCommandStructuredOutput(BaseModel):
-    commands: list[str] = Field(description="A list of runnable shell commands to verify setup. Empty list if none found.")
-    reasoning: str = Field(description="Brief justification for why these commands verify the environment.")
+    commands: list[str] = Field(
+        description="A list of runnable shell commands to verify setup. Empty list if none found."
+    )
+    reasoning: str = Field(
+        description="Brief justification for why these commands verify the environment."
+    )
 
 
 class TestsuiteContextExtractionNode:
@@ -71,15 +71,19 @@ class TestsuiteContextExtractionNode:
         if len(_extract) > 0:
             full_context_artifact = _extract[-1].artifact
             for context in full_context_artifact:
-                if 'preview' not in context or 'FileNode' not in context:
+                if "preview" not in context or "FileNode" not in context:
                     continue
-                relative_path = context['FileNode']['relative_path']
-                preview = context['preview']
-                human_messages.append(HUMAN_MESSAGE.format(
-                    original_query=state.get("query", "Find a quick verification command from docs"),
-                    context=preview,
-                    relative_path=relative_path,
-                ))
+                relative_path = context["FileNode"]["relative_path"]
+                preview = context["preview"]
+                human_messages.append(
+                    HUMAN_MESSAGE.format(
+                        original_query=state.get(
+                            "query", "Find a quick verification command from docs"
+                        ),
+                        context=preview,
+                        relative_path=relative_path,
+                    )
+                )
         return human_messages
 
     def __call__(self, state: TestsuiteState):
@@ -105,7 +109,7 @@ class TestsuiteContextExtractionNode:
                     all_commands.append(command)
         # Remove duplicates while preserving order
         commands = list(dict.fromkeys(all_commands))
-        
+
         if commands:
             self._logger.info(f"Extracted verification commands: {commands}")
             return {"testsuite_command": commands}

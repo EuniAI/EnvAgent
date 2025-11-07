@@ -2,12 +2,12 @@ import logging
 import shutil
 import tarfile
 import tempfile
-import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Sequence
 
 import docker  # Docker SDK for Python
+
 from app.utils.logger_manager import get_thread_logger
 
 
@@ -45,9 +45,9 @@ class BaseContainer(ABC):
         """
         # Initialize Docker client
         self.client = docker.from_env()
-        
+
         self._logger, _file_handler = get_thread_logger(__name__)
-        
+
         temp_dir = Path(tempfile.mkdtemp())
         temp_project_path = temp_dir / project_path.name
         shutil.copytree(project_path, temp_project_path)
@@ -90,19 +90,19 @@ class BaseContainer(ABC):
         Optionally uses volume mapping for real-time file synchronization.
 
         Args:
-            use_volume_mapping (bool): If True, maps project directory as volume for 
+            use_volume_mapping (bool): If True, maps project directory as volume for
                                      real-time bidirectional file sync. Defaults to False.
         """
         self._logger.info(f"Starting container from image {self.tag_name}")
-        
+
         # Base volumes (Docker socket)
         volumes = {"/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"}}
-        
+
         # Add volume mapping if requested
         if use_volume_mapping:
             volumes[str(self.project_path)] = {"bind": self.workdir, "mode": "rw"}
             self._logger.info(f"Using volume mapping: {self.project_path} -> {self.workdir}")
-        
+
         self.container = self.client.containers.run(
             self.tag_name,
             detach=True,
@@ -119,7 +119,7 @@ class BaseContainer(ABC):
 
     def get_container_id(self) -> str:
         """Get the container ID.
-        
+
         Returns:
             str: The full container ID.
         """
@@ -129,7 +129,7 @@ class BaseContainer(ABC):
 
     def get_container_short_id(self) -> str:
         """Get the container short ID.
-        
+
         Returns:
             str: The short container ID (first 12 characters).
         """
@@ -139,7 +139,7 @@ class BaseContainer(ABC):
 
     def get_container_name(self) -> str:
         """Get the container name.
-        
+
         Returns:
             str: The container name.
         """
@@ -149,7 +149,7 @@ class BaseContainer(ABC):
 
     def get_docker_exec_command(self) -> str:
         """Get the docker exec command to enter the container.
-        
+
         Returns:
             str: The docker exec command string.
         """
@@ -163,13 +163,13 @@ class BaseContainer(ABC):
         if not self.container:
             self._logger.warning("Container is not running")
             return
-        
+
         container_id = self.get_container_id()
         short_id = self.get_container_short_id()
         container_name = self.get_container_name()
         exec_command = self.get_docker_exec_command()
         mapping_project_path = self.project_path
-        
+
         self._logger.info(f"Container ID: {container_id}")
         self._logger.info(f"Container Short ID: {short_id}")
         self._logger.info(f"Container Name: {container_name}")
@@ -178,7 +178,7 @@ class BaseContainer(ABC):
 
     def get_generated_files(self, file_pattern: str = "*") -> list[Path]:
         """Get files generated in the container that are now available on the host.
-        
+
         This method works when volume mapping is enabled, allowing real-time access
         to files created inside the container.
 
@@ -197,12 +197,12 @@ class BaseContainer(ABC):
             # List files in the container's workdir
             result = self.execute_command(f"find {self.workdir} -name '{file_pattern}' -type f")
             if result.strip():
-                for line in result.strip().split('\n'):
+                for line in result.strip().split("\n"):
                     if line.strip():
                         # Convert container path to host path
                         container_path = line.strip()
                         if container_path.startswith(self.workdir):
-                            relative_path = container_path[len(self.workdir):].lstrip('/')
+                            relative_path = container_path[len(self.workdir) :].lstrip("/")
                             host_path = self.project_path / relative_path
                             if host_path.exists():
                                 generated_files.append(host_path)
@@ -318,15 +318,14 @@ class BaseContainer(ABC):
         exec_result_str = exec_result.output.decode("utf-8")
 
         self._logger.debug(f"Command output:\n{exec_result_str}")
-        
-        return CommandResult(exec_result_str, "", exec_result.exit_code)
 
+        return CommandResult(exec_result_str, "", exec_result.exit_code)
 
     def restart_container(self, use_volume_mapping: bool = False):
         """Restart the container with optional volume mapping.
-        
+
         Args:
-            use_volume_mapping (bool): If True, maps project directory as volume for 
+            use_volume_mapping (bool): If True, maps project directory as volume for
                                      real-time bidirectional file sync. Defaults to False.
         """
         self._logger.info("Restarting the container")

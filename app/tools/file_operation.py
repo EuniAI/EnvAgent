@@ -1,12 +1,12 @@
-import logging
 import os
 import shutil
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from app.utils.str_util import pre_append_line_numbers
 from app.utils.logger_manager import get_thread_logger
+from app.utils.str_util import pre_append_line_numbers
+
 logger, _file_handler = get_thread_logger(__name__)
 
 

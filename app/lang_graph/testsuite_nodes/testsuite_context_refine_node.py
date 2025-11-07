@@ -1,5 +1,3 @@
-import logging
-import threading
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -9,10 +7,6 @@ from pydantic import BaseModel, Field
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.states.testsuite_state import TestsuiteState
 from app.utils.logger_manager import get_thread_logger
-from app.utils.lang_graph_util import (
-    extract_last_tool_messages,
-    transform_tool_messages_to_str,
-)
 
 
 class TestsuiteContextRefineStructuredOutput(BaseModel):
@@ -84,10 +78,12 @@ Goal: If no quick verification command has been identified yet, craft a concise 
         )
 
     def __call__(self, state: TestsuiteState):
-        if "testsuite_max_refined_query_loop" in state and state["testsuite_max_refined_query_loop"] == 0:
+        if (
+            "testsuite_max_refined_query_loop" in state
+            and state["testsuite_max_refined_query_loop"] == 0
+        ):
             self._logger.info("Reached max_refined_query_loop, not asking for more context")
             return {"testsuite_refined_query": ""}
-
 
         human_prompt = self.format_refine_message(state)
         self._logger.debug(human_prompt)
@@ -97,7 +93,9 @@ Goal: If no quick verification command has been identified yet, craft a concise 
         state_update = {"testsuite_refined_query": response.refined_query}
 
         if "testsuite_max_refined_query_loop" in state:
-            state_update["testsuite_max_refined_query_loop"] = state["testsuite_max_refined_query_loop"] - 1
+            state_update["testsuite_max_refined_query_loop"] = (
+                state["testsuite_max_refined_query_loop"] - 1
+            )
 
         if response.refined_query:
             state_update["testsuite_context_provider_messages"] = [

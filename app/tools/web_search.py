@@ -139,15 +139,12 @@ class WebSearchTool:
         format_response = format_results(response)
         self._logger.info(f"web_search format_response: {format_response}")
         return format_response
+
+
 from dataclasses import dataclass
 from typing import Annotated
 
 from pydantic import BaseModel, Field
-from tavily import InvalidAPIKeyError, TavilyClient, UsageLimitExceededError
-
-from app.configuration.config import settings
-from app.exceptions.web_search_tool_exception import WebSearchToolException
-from app.utils.logger_manager import get_thread_logger
 
 
 @dataclass

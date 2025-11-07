@@ -6,18 +6,19 @@ from typing import Dict, List
 from langchain.prompts import ChatPromptTemplate
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from app.container.base_container import BaseContainer
-from app.utils.logger_manager import get_thread_logger
-from app.utils.str_util import pre_append_line_numbers
+
 # Extract command from messages (with backward compatibility)
 from app.lang_graph.repair_nodes.env_command_utils import extract_command_from_messages
+from app.utils.logger_manager import get_thread_logger
 
 
 class ReadFileInput(BaseModel):
-    file_path: str = Field(description="文件的路径，可以是绝对路径（如 /app/prometheus_setup.sh）或相对路径")
+    file_path: str = Field(
+        description="文件的路径，可以是绝对路径（如 /app/prometheus_setup.sh）或相对路径"
+    )
 
 
 READ_FILE_DESCRIPTION = """\
@@ -29,6 +30,7 @@ READ_FILE_DESCRIPTION = """\
 
 class RepairCommandsOutput(BaseModel):
     """结构化输出：包含下一步修复指令列表"""
+
     error_analysis: str = Field(description="对错误的详细分析")
     repair_commands: List[str] = Field(
         description="下一步需要执行的具体修复指令列表。每个指令应该是可以直接执行的 shell 命令，使用非交互式标志（如 -y/--yes）。"
@@ -37,7 +39,7 @@ class RepairCommandsOutput(BaseModel):
 
 class EnvRepairAnalyseNode:
     """分析环境命令执行结果中的错误并生成修复命令"""
-    
+
     SYS_PROMPT = """\
 你是一个环境修复分析专家。你的任务是分析环境命令执行的结果，识别错误原因，并生成具体的修复指令列表。
 
@@ -92,7 +94,7 @@ class EnvRepairAnalyseNode:
     def __init__(self, model: BaseChatModel, container: BaseContainer):
         self.container = container
         self._logger, _file_handler = get_thread_logger(__name__)
-        
+
         # 使用结构化输出
         prompt_template = ChatPromptTemplate.from_messages(
             [("system", self.SYS_PROMPT), ("human", "{prompt}")]
@@ -108,7 +110,7 @@ class EnvRepairAnalyseNode:
           List of StructuredTool instances configured for file reading.
         """
         tools = []
-        
+
         # Tool: 读取容器中的文件内容
         read_file_fn = functools.partial(self._read_file_from_container)
         read_file_tool = StructuredTool.from_function(
@@ -119,29 +121,26 @@ class EnvRepairAnalyseNode:
             response_format="content_and_artifact",
         )
         tools.append(read_file_tool)
-        
-        return tools
 
-    
+        return tools
 
     def __call__(self, state: Dict):
         messages = state.get("env_implement_command_messages", [])
         env_implement_command = extract_command_from_messages(messages, state)
-        
+
         env_implement_result = state.get("env_implement_result", {})
         env_command_result_history = state.get("env_command_result_history", [])
         test_command = state.get("test_command", "")
         test_result = state.get("test_result", [])
 
         str_env_implement_command = env_implement_command.get("file_content", "")
-        
-        
+
         # 获取最新的结果（最后一个）
         latest_env_result = env_implement_result
         latest_test_result = test_result
-        
+
         self._logger.info("分析环境执行结果...")
-        
+
         # 获取前3轮的历史信息（如果存在）
         previous_rounds_text = ""
         if len(env_command_result_history) > 1:
@@ -149,35 +148,35 @@ class EnvRepairAnalyseNode:
             # 当前轮是最后一个，所以从倒数第2个开始
             start_idx = max(0, len(env_command_result_history) - 4)  # 倒数第4个
             end_idx = len(env_command_result_history) - 1  # 倒数第2个（不包含最后一个）
-            
+
             if end_idx >= start_idx:
                 previous_rounds = env_command_result_history[start_idx:end_idx]
                 previous_rounds_parts = []
-                
+
                 for idx, history_item in enumerate(previous_rounds):
                     # round_num 是实际在历史中的索引位置（从0开始计数）
                     round_num = start_idx + idx
-                    history_command = history_item.get('command', {})
-                    history_result = history_item.get('result', {})
-                    history_analysis = history_item.get('analysis', '')
-                    
+                    history_command = history_item.get("command", {})
+                    history_result = history_item.get("result", {})
+                    history_analysis = history_item.get("analysis", "")
+
                     round_text = f"""
                     Round {round_num}:
-                    Command: {history_command.get('file_content', 'N/A')}
-                    Exit Code: {history_result.get('returncode', 'N/A')}
-                    Stdout: {history_result.get('stdout', '')}
-                    Stderr: {history_result.get('stderr', '')}
+                    Command: {history_command.get("file_content", "N/A")}
+                    Exit Code: {history_result.get("returncode", "N/A")}
+                    Stdout: {history_result.get("stdout", "")}
+                    Stderr: {history_result.get("stderr", "")}
                     """
                     if history_analysis:
                         round_text += f"  Previous Analysis: {history_analysis}\n"
                     previous_rounds_parts.append(round_text)
-                
+
                 if previous_rounds_parts:
                     previous_rounds_text = """
                     PREVIOUS ROUNDS HISTORY:
                     """
                     previous_rounds_text += "\n".join(previous_rounds_parts)
-        
+
         # 组织查询（显示最新结果，包含前3轮历史）
         context_query = (
             """
@@ -211,51 +210,46 @@ class EnvRepairAnalyseNode:
             ```
         """
         )
-        
+
         # 如果有历史信息，添加到context中
         if previous_rounds_text:
             context_query += previous_rounds_text
-        
+
         context_query += """
             </context>
 
             """
-        
+
         # 分析错误并生成修复指令列表
         prompt_text = (
-            context_query 
+            context_query
             + "\n请分析上述环境命令执行失败的原因。如果提供了历史轮次信息，请对比当前错误与历史错误。如果发现错误重复出现，请反思之前的修复策略为何无效，并采用完全不同的新策略来解决。最后根据分析结果生成修复指令列表。"
         )
-        
+
         # 使用结构化输出模型
         response = self.model.invoke({"prompt": prompt_text})
         self._logger.debug(f"模型响应: {response}")
-        
+
         # 提取指令列表
-        repair_commands = response.repair_commands if hasattr(response, 'repair_commands') else []
-        error_analysis_text = response.error_analysis if hasattr(response, 'error_analysis') else ""
-        
+        repair_commands = response.repair_commands if hasattr(response, "repair_commands") else []
+        error_analysis_text = response.error_analysis if hasattr(response, "error_analysis") else ""
+
         self._logger.info(f"错误分析: {error_analysis_text}")
         self._logger.info(f"修复指令列表: {repair_commands}")
-        
-        # 将修复指令列表转换为 Context 格式（根据状态定义）
-        from app.models.context import Context
-        repair_command_contexts = [
-            cmd.strip() for cmd in repair_commands
-        ]
 
+        # 将修复指令列表转换为 Context 格式（根据状态定义）
+
+        repair_command_contexts = [cmd.strip() for cmd in repair_commands]
 
         env_command_result_history = state.get("env_command_result_history", [])
         if len(env_command_result_history) > 0:
             current_env_command_result_history = env_command_result_history[-1]
-            current_env_command_result_history['analysis'] = error_analysis_text
-            current_env_command_result_history['repair_commands'] = repair_command_contexts
+            current_env_command_result_history["analysis"] = error_analysis_text
+            current_env_command_result_history["repair_commands"] = repair_command_contexts
             env_command_result_history[-1] = current_env_command_result_history
-
 
         return {
             "env_error_analysis": error_analysis_text,
             "env_repair_command": repair_command_contexts,
             "env_command_result_history": env_command_result_history,
         }
-

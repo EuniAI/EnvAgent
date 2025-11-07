@@ -1,6 +1,4 @@
 import functools
-import logging
-import threading
 
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -12,7 +10,7 @@ from app.utils.logger_manager import get_thread_logger
 
 
 class BugReproducingWriteNode:
-    SYS_PROMPT = '''\
+    SYS_PROMPT = """\
 You are a test automation expert who finds existing test commands in codebases to verify environment configuration.
 
 Your task is to search through the codebase and find available test commands that can verify automatic environment configuration is successful.
@@ -41,7 +39,7 @@ Examples of what to look for:
 - Docker: docker-compose test, docker run test
 
 Return the test commands found in the codebase that can verify environment configuration is working correctly.
-'''
+"""
 
     def __init__(self, model: BaseChatModel, local_path: str):
         self.tools = self._init_tools(local_path)

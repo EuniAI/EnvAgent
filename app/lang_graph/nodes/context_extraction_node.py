@@ -1,5 +1,3 @@
-import logging
-import threading
 from typing import Sequence
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -10,11 +8,11 @@ from app.exceptions.file_operation_exception import FileOperationException
 from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
 from app.models.context import Context
 from app.utils.file_utils import read_file_with_line_numbers
-from app.utils.logger_manager import get_thread_logger
 from app.utils.lang_graph_util import (
     extract_last_tool_messages,
     transform_tool_messages_to_str,
 )
+from app.utils.logger_manager import get_thread_logger
 
 SYS_PROMPT = """\
 You are a context summary agent that summarizes code contexts which is relevant to a given query.
@@ -82,7 +80,9 @@ class ContextOutput(BaseModel):
     reasoning: str = Field(
         description="Your step-by-step reasoning why the context is relevant to the query"
     )
-    relative_path: str = Field(description="Complete relative path to the context file in the codebase, including all subdirectories")
+    relative_path: str = Field(
+        description="Complete relative path to the context file in the codebase, including all subdirectories"
+    )
     start_line: int = Field(
         description="Start line number of the context in the file, minimum is 1"
     )
