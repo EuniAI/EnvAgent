@@ -11,8 +11,19 @@ class CustomChatOpenAI(ChatOpenAI):
         super().__init__(*args, **kwargs)
 
     def bind_tools(self, tools, tool_choice=None, **kwargs):
+        # kwargs["parallel_tool_calls"] = False
+        # return super().bind_tools(tools, tool_choice=tool_choice, **kwargs)
         kwargs["parallel_tool_calls"] = False
-        return super().bind_tools(tools, tool_choice=tool_choice, **kwargs)
+
+        # Remove LangChain default sampling parameters
+        for bad_key in ["temperature", "top_p", "top_k", "presence_penalty", "frequency_penalty"]:
+            if bad_key in kwargs:
+                kwargs.pop(bad_key)
+
+        runnable = super().bind_tools(tools, tool_choice=tool_choice, **kwargs)
+
+        # Clear inherited default sampling params
+        return runnable.bind()
 
     def invoke(
         self,

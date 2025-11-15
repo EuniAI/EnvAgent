@@ -236,7 +236,7 @@ def reproduce_test(
             git_repo.reset_repository()
             logger.removeHandler(file_handler)
             file_handler.close()
-            return False, None, None, None
+            return False, None, None, None, None
 
         logger.info("Starting environment implementation...")
         """

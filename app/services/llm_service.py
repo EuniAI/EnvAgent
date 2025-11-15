@@ -3,6 +3,8 @@ from typing import Optional
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import AzureChatOpenAI
+from numpy import float32
 
 from app.chat_models.custom_chat_openai import CustomChatOpenAI
 from app.chat_models.custom_vertex_ai_chat import CustomVertexAIChatModel
@@ -24,35 +26,36 @@ class LLMService(BaseService):
     ):
         self.advanced_model = get_model(
             advanced_model_name,
+            temperature,
             openai_format_api_key,
             openai_format_base_url,
             anthropic_api_key,
             gemini_api_key,
             vertex_ai_project_id,
             vertex_ai_location,
-            temperature,
+            max_output_tokens,
         )
         self.base_model = get_model(
             base_model_name,
+            temperature,
             openai_format_api_key,
             openai_format_base_url,
             anthropic_api_key,
             gemini_api_key,
             vertex_ai_project_id,
-            vertex_ai_location,
-            temperature,
+            vertex_ai_location,            
         )
 
 
 def get_model(
     model_name: str,
+    temperature: float,
     openai_format_api_key: Optional[str] = None,
     openai_format_base_url: Optional[str] = None,
     anthropic_api_key: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
     vertex_ai_project_id: Optional[str] = None,
     vertex_ai_location: Optional[str] = None,
-    temperature: float = 0.0,
 ) -> BaseChatModel:
     if "claude" in model_name:
         return ChatAnthropic(
@@ -87,5 +90,6 @@ def get_model(
             api_key=openai_format_api_key,
             base_url=openai_format_base_url,
             temperature=temperature,
+            # max_tokens=max_output_tokens,
             max_retries=3,
         )
