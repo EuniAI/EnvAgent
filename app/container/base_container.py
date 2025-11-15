@@ -35,20 +35,22 @@ class BaseContainer(ABC):
     timeout: int = 120
     logger: logging.Logger
 
-    def __init__(self, project_path: Path, workdir: Optional[str] = None):
+    def __init__(self, project_path: Path, workdir: Optional[str] = None, temp_prefix: str = "envagent_"):
         """Initialize the container with a project directory.
 
         Creates a temporary copy of the project directory to work with.
 
         Args:
           project_path: Path to the project directory to be containerized.
+          workdir: Optional working directory inside the container.
+          temp_prefix: Prefix for the temporary directory name. Defaults to "env".
         """
         # Initialize Docker client
         self.client = docker.from_env()
 
         self._logger, _file_handler = get_thread_logger(__name__)
 
-        temp_dir = Path(tempfile.mkdtemp())
+        temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
         temp_project_path = temp_dir / project_path.name
         shutil.copytree(project_path, temp_project_path)
         self.project_path = temp_project_path.absolute()

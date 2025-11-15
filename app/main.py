@@ -24,7 +24,7 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = True
+debug_mode = False
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,12 +87,15 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 # 按空格分割，但URL可能包含空格，需要特殊处理
                 parts = line.split()
                 project_name = parts[0]
-                repo_url_parts = parts[1:]  # parts[1:-2]
-                repo_url = " ".join(repo_url_parts)
+                repo_url = "http://github.com/" + project_name
+                project_tag = parts[1]
+                # repo_url_parts = parts[1:]  # parts[1:-2]
+                # repo_url = " ".join(repo_url_parts)
 
                 project_info = {
                     "name": project_name,
                     "repo_url": repo_url,
+                    'tag': project_tag,
                     # 'language': language,
                     # 'image': image_name,
                     # 'tag': tag
@@ -144,6 +147,7 @@ llm_service = LLMService(
 def reproduce_test(
     github_url: str,
     github_token: str,
+    project_tag: str,
     workdir: str = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
     # if dockerfile_content or image_name:
@@ -152,7 +156,7 @@ def reproduce_test(
     # Get or create repository (repository-based logic)
     logger.info("Getting or creating repository...")
     repo_path, root_node_id, is_new_repository = repository_service.get_or_create_repository(
-        github_token, github_url
+        github_token, github_url, project_tag
     )
 
     if is_new_repository:
@@ -324,7 +328,7 @@ def main(
 
         # Reproduce the bug
         success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
-            github_url, github_token, "/testbed"
+            github_url, github_token, project['tag'], "/testbed"
         )
 
         # Create project result with all states
