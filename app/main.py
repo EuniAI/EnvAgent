@@ -24,7 +24,9 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = False
+debug_mode = True
+
+test_mode = "pyright"  # generation pyright pytest
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,16 +91,11 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 project_name = parts[0]
                 repo_url = "http://github.com/" + project_name
                 project_tag = parts[1]
-                # repo_url_parts = parts[1:]  # parts[1:-2]
-                # repo_url = " ".join(repo_url_parts)
 
                 project_info = {
                     "name": project_name,
                     "repo_url": repo_url,
                     'tag': project_tag,
-                    # 'language': language,
-                    # 'image': image_name,
-                    # 'tag': tag
                 }
                 projects.append(project_info)
 
@@ -209,6 +206,7 @@ def reproduce_test(
     )
     env_repair_subgraph = EnvRepairSubgraph(
         debug_mode=debug_mode,
+        test_mode=test_mode,
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
         container=container,
@@ -219,24 +217,25 @@ def reproduce_test(
     if not debug_mode:
         testsuite_commands = []
         logger.info("Starting testsuite...")
-        try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(
-                max_refined_query_loop=5,
-            )
-            testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
-            with open(
-                os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
-            ) as f:
-                for command in testsuite_commands:
-                    f.write(command + "\n")
-        except Exception as e:
-            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-            # Clear the knowledge graph and repository
-            container.cleanup()
-            git_repo.reset_repository()
-            logger.removeHandler(file_handler)
-            file_handler.close()
-            return False, None, None, None, None
+        if test_mode == "generation":
+            try:
+                testsuiteoutput_states = testsuite_subgraph.invoke(
+                    max_refined_query_loop=5,
+                )
+                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+                with open(
+                    os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
+                ) as f:
+                    for command in testsuite_commands:
+                        f.write(command + "\n")
+            except Exception as e:
+                logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+                # Clear the knowledge graph and repository
+                container.cleanup()
+                git_repo.reset_repository()
+                logger.removeHandler(file_handler)
+                file_handler.close()
+                return False, None, None, None, None
 
         logger.info("Starting environment implementation...")
         """
@@ -255,27 +254,30 @@ def reproduce_test(
             file_handler.close()
             return False, None, None, None, None
     else:
-        with open(
-            os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "r"
-        ) as f:
-            testsuite_commands = f.readlines()
+        if test_mode == "generation":
+            with open(
+                os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "r"
+            ) as f:
+                testsuite_commands = f.readlines()
         with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
             env_setup_bash = f.read()
         testsuiteoutput_states = {}
         env_output_states = {}
 
     # debug mode: 执行并交互env_implement_command和test_command
-    if debug_mode:
-        doc["env_implement_command"] = {
-            "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
-            "file_content": env_setup_bash,
-        }
+    # if debug_mode:
+    doc["env_implement_command"] = {
+        "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
+        "file_content": env_setup_bash,
+    }
+    if test_mode == "generation":
         doc["test_command"] = testsuite_commands
-        try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=50)
-        except Exception as e:
-            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-            return False, None, None, None, None
+
+    try:
+        env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=50)
+    except Exception as e:
+        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+        return False, None, None, None, None
 
     # Get container information
     container_info = container.print_container_info()

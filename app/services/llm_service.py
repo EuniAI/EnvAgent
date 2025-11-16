@@ -33,7 +33,6 @@ class LLMService(BaseService):
             gemini_api_key,
             vertex_ai_project_id,
             vertex_ai_location,
-            max_output_tokens,
         )
         self.base_model = get_model(
             base_model_name,

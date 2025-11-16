@@ -17,6 +17,7 @@ from app.lang_graph.repair_nodes.env_repair_test_execute_node import EnvRepairTe
 from app.lang_graph.repair_nodes.env_repair_test_update_command_node import (
     EnvRepairTestUpdateCommandNode,
 )
+from app.lang_graph.repair_nodes.env_repair_pyright_execute_node import EnvRepairPyrightExecuteNode
 from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
 from app.lang_graph.states.env_implement_state import EnvImplementState
 
@@ -44,7 +45,17 @@ def router_function(state: Dict) -> str:
 
     # 情况4：测试失败，需要分析测试错误（检查最后一个结果）
     if len(test_result) > 0:
-        if isinstance(test_result, dict) and test_result.get("returncode", 0) != 0:
+        # 处理列表格式的 test_result
+        if isinstance(test_result, list):
+            last_result = test_result[-1]
+            if isinstance(last_result, dict):
+                # 检查 returncode 或 issues_count（pytest 模式）
+                returncode = last_result.get("returncode", 0)
+                issues_count = last_result.get("issues_count", 0)
+                if returncode != 0 or (issues_count is not None and issues_count > 0):
+                    return "case4"
+        # 处理字典格式的 test_result（向后兼容）
+        elif isinstance(test_result, dict) and test_result.get("returncode", 0) != 0:
             return "case4"
 
     # 默认情况：都成功
@@ -69,6 +80,7 @@ class EnvRepairSubgraph:
     def __init__(
         self,
         debug_mode: bool,
+        test_mode: str,
         advanced_model: BaseChatModel,
         base_model: BaseChatModel,
         container: BaseContainer,
@@ -79,9 +91,10 @@ class EnvRepairSubgraph:
         self.advanced_model = advanced_model
         self.base_model = base_model
         self.container = container
+        self.test_mode = test_mode
 
         # 创建节点
-        env_repair_check_node = EnvRepairCheckNode()  # 检查状态
+        env_repair_check_node = EnvRepairCheckNode(test_mode)  # 检查状态
 
         env_repair_execute_node = EnvRepairExecuteNode(container)
         env_repair_analyse_node = EnvRepairAnalyseNode(advanced_model, container)
@@ -98,6 +111,9 @@ class EnvRepairSubgraph:
         env_repair_test_update_command_node = EnvRepairTestUpdateCommandNode(
             advanced_model, container, container.project_path
         )
+        env_repair_pyright_execute_node = EnvRepairPyrightExecuteNode(container)
+
+
         # 构建工作流
         workflow = StateGraph(EnvImplementState)
 
@@ -112,27 +128,46 @@ class EnvRepairSubgraph:
         workflow.add_node(
             "update_command_tool", env_repair_update_command_tool_node
         )  # 更新命令工具
-        workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
-        workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
-        workflow.add_node(
-            "update_test_command", env_repair_test_update_command_node
-        )  # 更新测试命令
+
         workflow.add_node("check_status", env_repair_check_node)  # 检查状态
+
+        # 根据 test_mode 条件性添加节点
+        if test_mode == "generation":
+            workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
+            workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
+            workflow.add_node(
+                "update_test_command", env_repair_test_update_command_node
+            )  # 更新测试命令
+        elif test_mode == "pyright":
+            workflow.add_node("execute_pyright", env_repair_pyright_execute_node)  # 执行pyright
+
+
+
 
         # 设置入口点
         workflow.set_entry_point("router")
+
+        # 创建动态路由映射，根据 test_mode 决定 case3 和 case4 的目标
+        def create_router_mapping():
+            base_mapping = {
+                "case1": "execute_env",
+                "case2": "analyse_env_error_analyse",
+                "success": END,
+            }
+            # case3 根据 test_mode 决定路由目标
+            if test_mode == "pyright":
+                base_mapping["case3"] = "execute_pyright"
+                base_mapping["case4"] = "analyse_env_error_analyse"# pyright 模式下，case4（检查失败）应该回到环境错误分析
+            elif test_mode == "generation":
+                base_mapping["case3"] = "execute_test"
+                base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
+            return base_mapping
 
         # 主路由：根据当前状态决定下一步
         workflow.add_conditional_edges(
             "router",
             router_function,
-            {
-                "case1": "execute_env",
-                "case2": "analyse_env_error_analyse",
-                "case3": "execute_test",
-                "case4": "analyse_test_error",
-                "success": END,
-            },
+            create_router_mapping(),
         )
 
         # 执行环境命令后，检查状态
@@ -149,11 +184,16 @@ class EnvRepairSubgraph:
         )
         workflow.add_edge("update_command_tool", "update_command")
         # Tool execution returns to update_command for continuation
-
+    
         # 执行测试后，检查状态
-        workflow.add_edge("execute_test", "check_status")
-        workflow.add_edge("analyse_test_error", "update_test_command")
-        workflow.add_edge("update_test_command", "execute_test")
+        if test_mode == "generation":
+            workflow.add_edge("execute_test", "check_status")
+            workflow.add_edge("analyse_test_error", "update_test_command")
+            workflow.add_edge("update_test_command", "execute_test")
+        elif test_mode == "pyright":
+            # pyright 模式：执行环境质量检查后，直接检查状态
+            workflow.add_edge("execute_pyright", "check_status")
+            # 如果 pyright 检查失败（issues_count > 0），会通过 router 回到环境修复流程
 
         # 检查状态后，决定是否继续循环
         workflow.add_conditional_edges(
