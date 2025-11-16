@@ -85,6 +85,32 @@ class BaseContainer(ABC):
             path=str(self.project_path), dockerfile=dockerfile_path.name, tag=self.tag_name
         )
 
+    def build_empty_docker_image(self):
+        """Build a empty Docker image.
+
+        Builds a Docker image using the specified tag name.
+        Creates a minimal Dockerfile if one doesn't exist.
+        """
+        self._logger.info(f"Building empty docker image {self.tag_name}")
+        
+        # Create a minimal Dockerfile if it doesn't exist
+        dockerfile_path = self.project_path / "Dockerfile"
+        if not dockerfile_path.exists():
+            # Use the same base image as GeneralContainer for consistency
+            minimal_dockerfile = """FROM ubuntu:24.04
+
+# Avoid timezone prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Set working directory
+WORKDIR /app
+"""
+            dockerfile_path.write_text(minimal_dockerfile)
+            self._logger.info(f"Created minimal Dockerfile at {dockerfile_path}")
+        
+        self.client.images.build(path=str(self.project_path), tag=self.tag_name)
+
     def start_container(self, use_volume_mapping: bool = False):
         """Start a Docker container from the built image.
 

@@ -171,7 +171,7 @@ def reproduce_test(
     # Get git_repo pointing to container.project_path (temporary copy)
     container = GeneralContainer(repo_path)
     # Start the container with volume mapping for real-time file sync
-    container.build_docker_image()
+    container.build_empty_docker_image()
     container.start_container(use_volume_mapping=True)
     container_git_repo = repository_service.get_repository(container.project_path)
 

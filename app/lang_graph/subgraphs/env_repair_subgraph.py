@@ -23,55 +23,49 @@ from app.lang_graph.states.env_implement_state import EnvImplementState
 
 
 def router_function(state: Dict) -> str:
-    """路由器函数：根据输入状态决定流程"""
-    env_implement_result = state.get("env_implement_result", {})
-    test_result = state.get("test_result", [])
+    """路由器函数：根据 check_state 决定流程"""
+    check_state = state.get("check_state", {})
 
-    # 情况1：没有 env_implement_result，首次执行环境命令
-    if len(env_implement_result) == 0:
-        return "case1"
+    # 如果 check_state 存在，优先使用 check_state 进行路由
+    if check_state:
+        env_success = check_state.get("env_success", 0)
+        test_success = check_state.get("test_success", 0)
 
-    # 情况2：环境命令失败，需要分析错误（当前env_implement_result为dict，已经是最后一个结果）
-    if len(env_implement_result) > 0:
-        if (
-            isinstance(env_implement_result, dict)
-            and env_implement_result.get("returncode", 0) != 0
-        ):
+        # 情况1：没有 env_implement_result，首次执行环境命令
+        if env_success == 0:
+            return "case1"
+
+        # 情况2：环境失败，需要分析错误
+        if env_success == -1:
             return "case2"
 
-    # 情况3：环境命令成功，但还没有运行测试
-    if len(test_result) == 0:
-        return "case3"
+        # 情况3：环境成功，但还没有运行测试
+        if env_success == 1 and test_success == 0:
+            return "case3"
 
-    # 情况4：测试失败，需要分析测试错误（检查最后一个结果）
-    if len(test_result) > 0:
-        # 处理列表格式的 test_result
-        if isinstance(test_result, list):
-            last_result = test_result[-1]
-            if isinstance(last_result, dict):
-                # 检查 returncode 或 issues_count（pytest 模式）
-                returncode = last_result.get("returncode", 0)
-                issues_count = last_result.get("issues_count", 0)
-                if returncode != 0 or (issues_count is not None and issues_count > 0):
-                    return "case4"
-        # 处理字典格式的 test_result（向后兼容）
-        elif isinstance(test_result, dict) and test_result.get("returncode", 0) != 0:
+        # 情况4：环境成功但测试失败
+        if env_success == 1 and test_success == -1:
             return "case4"
 
-    # 默认情况：都成功
-    return "success"
+        # todo 是否会出现，环境首次成功，但是二次运行后失败的情况？
+
+        # 默认情况：都成功
+        return "success"
+    else:
+        raise ValueError("check_state is not found")
 
 
 def check_router_function(state: Dict) -> str:
     """检查路由器：决定是继续循环还是结束"""
-    should_continue = state.get("should_continue", False)
-    env_success = state.get("env_success", False)
-    test_success = state.get("test_success", False)
+    check_state = state.get("check_state", {})
+    
+    # 从 check_state 中获取值
+    env_success = check_state.get("env_success", False)
+    test_success = check_state.get("test_success", False)
 
     # 如果环境成功且测试成功，直接结束
     if env_success and test_success:
         return "end"
-
     # 否则继续循环
     return "continue"
 
@@ -145,7 +139,8 @@ class EnvRepairSubgraph:
 
 
         # 设置入口点
-        workflow.set_entry_point("router")
+        workflow.set_entry_point("check_status")
+        workflow.add_edge("check_status", "router")
 
         # 创建动态路由映射，根据 test_mode 决定 case3 和 case4 的目标
         def create_router_mapping():

@@ -18,11 +18,12 @@ class EnvRepairCheckNode:
         env_implement_result = state.get("env_implement_result", {})
         test_results = state.get("test_result", [])
         # 检查 env_implement_result 是否成功
-        env_success = False
-        test_success = False
+        # success 0（未运行）1（成功）-1（失败）
+        env_success = 0
+        test_success = 0
         if len(env_implement_result) > 0:
             if isinstance(env_implement_result, dict) and "returncode" in env_implement_result:
-                env_success = env_implement_result["returncode"] == 0
+                env_success = 1 if env_implement_result["returncode"] == 0 else -1
 
         if self.test_mode == "generation":
             if len(test_results) > 0:
@@ -39,28 +40,21 @@ class EnvRepairCheckNode:
                             # 非 pyright 模式，只检查 returncode
                             is_success = returncode == 0
                         test_success_list.append(is_success)
-                test_success = all(test_success_list)  # 确保所有测试都成功
+                test_success = 1 if all(test_success_list) else -1 # 确保所有测试都成功
             elif len(test_results) == 0:
-                # 如果没有 test_result，可能需要先运行 test
+                # 如果没有 test_result，需要先运行 test
                 self._logger.info("需要运行测试")
         elif self.test_mode == "pyright":
             pass
-            
-
-
-
+        
         # 判断是否完成
-        if env_success and test_success:
-            self._logger.info("✅ 环境搭建和测试全部成功！")
-            should_continue = False
-        elif env_success and not test_success:
-            self._logger.info("⚠️ 环境搭建成功，但测试失败")
-            should_continue = True
-        elif not env_success:
-            self._logger.info("❌ 环境搭建失败")
-            should_continue = True
-        else:
-            should_continue = True
+        should_continue = True
+        if env_success == 1:
+            if test_success == 1:
+                should_continue = False
+            elif test_success == -1 or test_success == 0:
+                should_continue = True
+        
         check_state = {
             "should_continue": should_continue,
             "env_success": env_success,
