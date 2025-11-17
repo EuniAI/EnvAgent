@@ -45,7 +45,20 @@ class EnvRepairCheckNode:
                 # 如果没有 test_result，需要先运行 test
                 self._logger.info("需要运行测试")
         elif self.test_mode == "pyright":
-            pass
+            # pyright 模式下，test_result 是一个字典（不是列表）
+            if isinstance(test_results, dict) and len(test_results) > 0:
+                returncode = test_results.get("returncode", 1)
+                issues_count = test_results.get("issues_count", -1)
+                # issues_count 为 0 表示成功，大于 0 表示失败
+                if issues_count == 0 and returncode == 0:
+                    test_success = 1
+                elif issues_count > 0 or returncode != 0:
+                    test_success = -1
+                else:
+                    test_success = 0
+            elif len(test_results) == 0:
+                # 如果没有 test_result，需要先运行 pyright 检查
+                self._logger.info("需要运行 pyright 检查")
         
         # 判断是否完成
         should_continue = True

@@ -18,6 +18,7 @@ from app.lang_graph.repair_nodes.env_repair_test_update_command_node import (
     EnvRepairTestUpdateCommandNode,
 )
 from app.lang_graph.repair_nodes.env_repair_pyright_execute_node import EnvRepairPyrightExecuteNode
+from app.lang_graph.repair_nodes.env_repair_pyright_analyse_node import EnvRepairPyrightAnalyseNode
 from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
 from app.lang_graph.states.env_implement_state import EnvImplementState
 
@@ -106,6 +107,7 @@ class EnvRepairSubgraph:
             advanced_model, container, container.project_path
         )
         env_repair_pyright_execute_node = EnvRepairPyrightExecuteNode(container)
+        env_repair_pyright_analyse_node = EnvRepairPyrightAnalyseNode(advanced_model, container)
 
 
         # 构建工作流
@@ -134,6 +136,10 @@ class EnvRepairSubgraph:
             )  # 更新测试命令
         elif test_mode == "pyright":
             workflow.add_node("execute_pyright", env_repair_pyright_execute_node)  # 执行pyright
+            workflow.add_node("analyse_pyright_error", env_repair_pyright_analyse_node)  # 分析pyright错误
+            # workflow.add_node(
+            #     "update_command", env_repair_update_command_node
+            # )  # 更新测试命令
 
 
 
@@ -152,7 +158,7 @@ class EnvRepairSubgraph:
             # case3 根据 test_mode 决定路由目标
             if test_mode == "pyright":
                 base_mapping["case3"] = "execute_pyright"
-                base_mapping["case4"] = "analyse_env_error_analyse"# pyright 模式下，case4（检查失败）应该回到环境错误分析
+                base_mapping["case4"] = "analyse_pyright_error"  # pyright 模式下，case4（检查失败）应该分析pyright错误
             elif test_mode == "generation":
                 base_mapping["case3"] = "execute_test"
                 base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
@@ -188,7 +194,9 @@ class EnvRepairSubgraph:
         elif test_mode == "pyright":
             # pyright 模式：执行环境质量检查后，直接检查状态
             workflow.add_edge("execute_pyright", "check_status")
-            # 如果 pyright 检查失败（issues_count > 0），会通过 router 回到环境修复流程
+            # 如果 pyright 检查失败（issues_count > 0），会通过 router 分析错误并生成修复命令
+            workflow.add_edge("analyse_pyright_error", "update_command")
+            workflow.add_edge("update_command", "execute_env")
 
         # 检查状态后，决定是否继续循环
         workflow.add_conditional_edges(

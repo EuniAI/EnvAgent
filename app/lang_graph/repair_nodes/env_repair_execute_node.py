@@ -16,14 +16,10 @@ class EnvRepairExecuteNode:
 
     def __call__(self, state: Dict):
         # Extract command from messages (with backward compatibility)
-        messages = state.get("env_implement_command_messages", [])
-        env_implement_command = extract_command_from_messages(messages, state)
-
+        env_implement_command = state.get("env_implement_command", {})
         env_repair_command = state.get("env_repair_command", [])
         # 优先运行 env_repair_command
-        current_command = env_implement_command.get(
-            "command", ""
-        )  # 现在默认只运行env_implement_command
+        current_command = env_implement_command.get("command", "")
 
         if not current_command:
             self._logger.warning("No command found in messages or state")

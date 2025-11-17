@@ -24,7 +24,7 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = True
+debug_mode = False
 
 test_mode = "pyright"  # generation pyright pytest
 
