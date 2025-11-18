@@ -19,7 +19,7 @@ from app.lang_graph.env_nodes.file_context_retrieval_subgraph_node import (
     FileContextRetrievalSubgraphNode,
 )
 from app.lang_graph.nodes.git_diff_node import GitDiffNode
-from app.lang_graph.states.env_implement_state import EnvImplementState
+from app.lang_graph.states.env_implement_state import EnvImplementState, save_env_implement_states_to_json
 
 
 class EnvImplementSubgraph:
@@ -36,6 +36,7 @@ class EnvImplementSubgraph:
         test_commands: Optional[Sequence[str]] = None,
     ):
         self.advanced_model = advanced_model
+        self.container = container
         env_implement_file_context_message_node = EnvImplementFileContextMessageNode(debug_mode)
         file_context_retrieval_subgraph_node = FileContextRetrievalSubgraphNode(
             base_model,
@@ -47,7 +48,7 @@ class EnvImplementSubgraph:
             query_key_name="env_implement_file_context_query",
             context_key_name="env_implement_file_context",
         )
-        env_implement_write_message_node = EnvImplementWriteMessageNode()
+        env_implement_write_message_node = EnvImplementWriteMessageNode(container.project_path)
         env_implement_write_node = EnvImplementWriteNode(advanced_model, container.project_path)
         env_implement_write_tools = ToolNode(
             tools=env_implement_write_node.tools,
@@ -83,19 +84,14 @@ class EnvImplementSubgraph:
         workflow.add_node("env_implement_file_tools", env_implement_file_tools)
         workflow.add_node("git_diff_node", git_diff_node)
 
-        if debug_mode:
-            workflow.set_entry_point("env_implement_file_context_message_node")
-            workflow.add_edge(
-                "env_implement_file_context_message_node", "env_implement_write_message_node"
-            )
-        else:
-            workflow.set_entry_point("env_implement_file_context_message_node")
-            workflow.add_edge(
-                "env_implement_file_context_message_node", "file_context_retrieval_subgraph_node"
-            )
-            workflow.add_edge(
-                "file_context_retrieval_subgraph_node", "env_implement_write_message_node"
-            )
+        
+        workflow.set_entry_point("env_implement_file_context_message_node")
+        workflow.add_edge(
+            "env_implement_file_context_message_node", "file_context_retrieval_subgraph_node"
+        )
+        workflow.add_edge(
+            "file_context_retrieval_subgraph_node", "env_implement_write_message_node"
+        )
 
         workflow.add_edge("env_implement_write_message_node", "env_implement_write_node")
         # Handle patch-writing tool usage or fallback
@@ -133,4 +129,5 @@ class EnvImplementSubgraph:
 
         config = {"recursion_limit": recursion_limit}
         output_state = self.subgraph.invoke(input_state, config)
+        save_env_implement_states_to_json(output_state, self.container.project_path)
         return output_state

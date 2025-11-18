@@ -14,6 +14,7 @@ from app.lang_graph.env_nodes.file_context_refine_node import FileContextRefineN
 from app.lang_graph.nodes.reset_messages_node import ResetMessagesNode
 from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
 from app.models.context import Context
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 
 class FileContextRetrievalSubgraph:
@@ -59,7 +60,7 @@ class FileContextRetrievalSubgraph:
 
         # Step 2: Provide candidate context snippets using knowledge graph tools
         file_context_provider_node = FileContextProviderNode(
-            model, kg, neo4j_driver, max_token_per_neo4j_result
+            model, kg, neo4j_driver, max_token_per_neo4j_result, local_path
         )
 
         # Step 3: Add tool node to handle tool-based retrieval invocation dynamically
@@ -77,7 +78,7 @@ class FileContextRetrievalSubgraph:
         reset_context_provider_messages_node = ResetMessagesNode("context_provider_messages")
 
         # Step 6: Refine the query if needed and loop back
-        file_context_refine_node = FileContextRefineNode(model, kg)
+        file_context_refine_node = FileContextRefineNode(model, kg, local_path)
 
         # Construct the LangGraph workflow
         workflow = StateGraph(ContextRetrievalState)
@@ -116,7 +117,7 @@ class FileContextRetrievalSubgraph:
 
         # Compile and store the subgraph
         self.subgraph = workflow.compile()
-
+        self.local_path = local_path
     def invoke(self, query: str, max_refined_query_loop: int) -> Dict[str, Sequence[Context]]:
         """
         Executes the context retrieval subgraph given an initial query.
@@ -138,5 +139,5 @@ class FileContextRetrievalSubgraph:
         }
 
         output_state = self.subgraph.invoke(input_state, config)
-
+        save_env_implement_states_to_json(output_state, self.local_path)
         return {"context": output_state["context"]}

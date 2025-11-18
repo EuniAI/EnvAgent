@@ -4,7 +4,7 @@ from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 
-from app.lang_graph.states.env_implement_state import EnvImplementState
+from app.lang_graph.states.env_implement_state import EnvImplementState, save_env_implement_states_to_json
 from app.tools import file_operation
 from app.utils.logger_manager import get_thread_logger
 
@@ -154,6 +154,7 @@ main "$@"
 """
 
     def __init__(self, model: BaseChatModel, local_path: str):
+        self.local_path = local_path
         self.tools = self._init_tools(local_path)
         self.system_prompt = SystemMessage(self.SYS_PROMPT)
         self.model_with_tools = model.bind_tools(self.tools)
@@ -186,4 +187,6 @@ main "$@"
         response = self.model_with_tools.invoke(message_history)
 
         self._logger.debug(response)
-        return {"env_implement_write_messages": [response]}
+        state_update = {"env_implement_write_messages": [response]}
+        save_env_implement_states_to_json(state_update, self.local_path)
+        return state_update

@@ -154,9 +154,14 @@ class KnowledgeGraph:
                 except UnicodeDecodeError:
                     self._logger.warning(f"UnicodeDecodeError when processing {file}")
                     continue
+                except FileNotFoundError:
+                    self._logger.warning(f"FileNotFoundError when processing {file} (possibly broken symlink)")
+                    continue
                 self._next_node_id = next_node_id
                 self._knowledge_graph_nodes.extend(kg_nodes)
                 self._knowledge_graph_edges.extend(kg_edges)
+                # Note: declare_nodes and declare_edges are returned but not currently used
+                # They can be added to the graph if needed in the future
 
     @classmethod
     def from_neo4j(

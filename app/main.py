@@ -214,58 +214,60 @@ def reproduce_test(
         git_repo=container_git_repo,
         neo4j_driver=neo4j_service.neo4j_driver,
     )
-    if not debug_mode:
-        testsuite_commands = []
-        logger.info("Starting testsuite...")
-        if test_mode == "generation":
-            try:
-                testsuiteoutput_states = testsuite_subgraph.invoke(
-                    max_refined_query_loop=5,
-                )
-                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
-                with open(
-                    os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
-                ) as f:
-                    for command in testsuite_commands:
-                        f.write(command + "\n")
-            except Exception as e:
-                logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-                # Clear the knowledge graph and repository
-                container.cleanup()
-                git_repo.reset_repository()
-                logger.removeHandler(file_handler)
-                file_handler.close()
-                return False, None, None, None, None
-
-        logger.info("Starting environment implementation...")
-        """
-        todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
-        """
+    
+    testsuite_commands = []
+    logger.info("Starting testsuite...")
+    if test_mode == "generation":
         try:
-            env_output_states = env_implement_subgraph.invoke(
-                recursion_limit=200,
+            testsuiteoutput_states = testsuite_subgraph.invoke(
+                max_refined_query_loop=5,
             )
+            testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+            with open(
+                os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
+            ) as f:
+                for command in testsuite_commands:
+                    f.write(command + "\n")
         except Exception as e:
-            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
+            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
             container.cleanup()
             git_repo.reset_repository()
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None, None
-    else:
-        if test_mode == "generation":
-            with open(
-                os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "r"
-            ) as f:
-                testsuite_commands = f.readlines()
-        with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
-            env_setup_bash = f.read()
-        testsuiteoutput_states = {}
-        env_output_states = {}
+
+    logger.info("Starting environment implementation...")
+    """
+    todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
+    """
+    try:
+        env_output_states = env_implement_subgraph.invoke(
+            recursion_limit=200,
+        )
+    except Exception as e:
+        logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
+        # Clear the knowledge graph and repository
+        container.cleanup()
+        git_repo.reset_repository()
+        logger.removeHandler(file_handler)
+        file_handler.close()
+        return False, None, None, None, None
+
+
+    if test_mode == "generation":
+        with open(
+            os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "r"
+        ) as f:
+            testsuite_commands = f.readlines()
+    with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
+        env_setup_bash = f.read()
+    testsuiteoutput_states = {}
+    env_output_states = {}
 
     # debug mode: 执行并交互env_implement_command和test_command
     # if debug_mode:
+    
     doc["env_implement_command"] = {
         "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
         "file_content": env_setup_bash,
@@ -323,47 +325,76 @@ def main(
     predictions = {}
 
     for project in tqdm(projects):
-        # 记录当前处理的项目信息
-        logger.info(f"开始处理项目: {project['name']} ")
+        try:
+            # 记录当前处理的项目信息
+            logger.info(f"开始处理项目: {project['name']} ")
 
-        github_url = project["repo_url"]
+            github_url = project["repo_url"]
 
-        # Reproduce the bug
-        success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
-            github_url, github_token, project['tag'], "/testbed"
-        )
+            # Reproduce the bug
+            success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
+                github_url, github_token, project['tag'], "/testbed"
+            )
 
-        # Create project result with all states
-        project_result = {
-            "project_name": project["name"],
-            "project_repo_url": project["repo_url"],
-            "success": success,
-            "playground_path": str(playground_path) if playground_path else None,
-            "container_info": container_info,
-            "testsuite_states": serialize_states_for_json(testsuite_states)
-            if testsuite_states
-            else None,
-            "env_states": serialize_states_for_json(env_states) if env_states else None,
-            "timestamp": datetime.now().isoformat(),
-        }
+            # Create project result with all states
+            project_result = {
+                "project_name": project["name"],
+                "project_repo_url": project["repo_url"],
+                "success": success,
+                "playground_path": str(playground_path) if playground_path else None,
+                "container_info": container_info,
+                "testsuite_states": serialize_states_for_json(testsuite_states)
+                if testsuite_states
+                else None,
+                "env_states": serialize_states_for_json(env_states) if env_states else None,
+                "timestamp": datetime.now().isoformat(),
+            }
 
-        # Add to predictions
-        predictions[project["name"]] = project_result
+            # Add to predictions
+            predictions[project["name"]] = project_result
 
-        # Log the states immediately
-        logger.info(f"Project {project['name']} completed successfully: {success}")
-        if playground_path:
-            logger.info(f"Playground path: {playground_path}")
-        if container_info:
-            logger.info(f"Container info: {container_info}")
-        if testsuite_states:
-            logger.info(f"Testsuite states keys: {list(testsuite_states.keys())}")
-        if env_states:
-            logger.info(f"Environment states keys: {list(env_states.keys())}")
+            # Log the states immediately
+            logger.info(f"Project {project['name']} completed successfully: {success}")
+            if playground_path:
+                logger.info(f"Playground path: {playground_path}")
+            if container_info:
+                logger.info(f"Container info: {container_info}")
+            if testsuite_states:
+                logger.info(f"Testsuite states keys: {list(testsuite_states.keys())}")
+            if env_states:
+                logger.info(f"Environment states keys: {list(env_states.keys())}")
 
-        # Continuously save to JSON file
-        with open(file, "w", encoding="utf-8") as f:
-            json.dump(predictions, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            # 捕获所有异常，记录错误信息并继续处理下一个项目
+            error_message = str(e)
+            error_traceback = traceback.format_exc()
+            logger.error(f"处理项目 {project['name']} 时发生错误: {error_message}")
+            logger.error(f"错误堆栈:\n{error_traceback}")
+
+            # 创建错误结果
+            project_result = {
+                "project_name": project["name"],
+                "project_repo_url": project.get("repo_url", "unknown"),
+                "success": False,
+                "error": error_message,
+                "error_traceback": error_traceback,
+                "playground_path": None,
+                "container_info": None,
+                "testsuite_states": None,
+                "env_states": None,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # 添加错误结果到 predictions
+            predictions[project["name"]] = project_result
+
+        finally:
+            # 无论成功还是失败，都保存当前进度到 JSON 文件
+            try:
+                with open(file, "w", encoding="utf-8") as f:
+                    json.dump(predictions, f, indent=4, ensure_ascii=False)
+            except Exception as save_error:
+                logger.error(f"保存结果文件时发生错误: {save_error}")
 
 
 if __name__ == "__main__":

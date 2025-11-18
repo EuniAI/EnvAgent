@@ -185,6 +185,11 @@ class FileGraphBuilder:
         tree_sitter_nodes = []
         tree_sitter_edges = []
 
+        # Check if file exists (including resolving symlinks)
+        if not file.exists():
+            logger.warning(f"File does not exist (possibly broken symlink): {file}")
+            return next_node_id, tree_sitter_nodes, tree_sitter_edges
+
         # Parse the file into a tree-sitter AST
         tree = tree_sitter_parser.parse(file)
         if tree.root_node.has_error or tree.root_node.child_count == 0:
@@ -294,6 +299,11 @@ class FileGraphBuilder:
         Sequence[KnowledgeGraphNode],
         Sequence[KnowledgeGraphEdge],
     ]:
+        # Check if file exists (including resolving symlinks)
+        if not file.exists():
+            logger.warning(f"File does not exist (possibly broken symlink): {file}")
+            return next_node_id, [], []
+        
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap, length_function=len
         )

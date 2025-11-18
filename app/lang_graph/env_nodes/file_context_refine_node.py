@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 from app.utils.logger_manager import get_thread_logger
 
 
@@ -89,7 +90,7 @@ If additional context is needed:
 - Consider both configuration files and documentation that might be relevant
 """
 
-    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph):
+    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph, local_path: str):
         self.file_tree = kg.get_file_tree()
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -99,6 +100,7 @@ If additional context is needed:
         )
         structured_llm = model.with_structured_output(FileContextRefineStructuredOutput)
         self.model = prompt | structured_llm
+        self.local_path = local_path    
         self._logger, file_handler = get_thread_logger(__name__)
 
     def format_refine_message(self, state: ContextRetrievalState):
@@ -178,5 +180,5 @@ If additional context is needed:
             state_update["context_provider_messages"] = [
                 HumanMessage(content=response.refined_query)
             ]
-
+        save_env_implement_states_to_json(state, self.local_path)
         return state_update

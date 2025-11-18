@@ -16,6 +16,7 @@ from langchain_core.messages import SystemMessage
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 
 class FileContextProviderNode:
@@ -101,6 +102,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         kg: KnowledgeGraph,
         neo4j_driver: neo4j.Driver,
         max_token_per_result: int,
+        local_path: str,
     ):
         """Initializes the ContextProviderNode with model, knowledge graph, and database connection.
 
@@ -122,7 +124,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         self.neo4j_driver = neo4j_driver
         self.root_node_id = kg.root_node_id
         self.max_token_per_result = max_token_per_result
-
+        self.local_path = local_path
         self.system_prompt = SystemMessage(self.SYS_PROMPT.format(file_tree=kg.get_file_tree()))
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
@@ -305,4 +307,5 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         response = self.model_with_tools.invoke(message_history)
         self._logger.debug(response)
         # The response will be added to the bottom of the list
+        save_env_implement_states_to_json(state, self.local_path)
         return {"context_provider_messages": [response]}

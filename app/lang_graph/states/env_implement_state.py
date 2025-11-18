@@ -1,11 +1,15 @@
+import json
+import os
+import time
 from pathlib import Path
 from typing import Annotated, Any, Dict, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-
+from pydantic import BaseModel
 from app.models.context import Context
 
+timestamp = time.strftime('%Y%m%d_%H%M%S')
 
 class EnvImplementState(TypedDict):
     # Query refinement control
@@ -60,3 +64,24 @@ class EnvImplementState(TypedDict):
 
     env_error_analysis: str  # 分析test_result或者env_implement_result中的错误原因
     check_state: Dict[str, Any]
+
+
+
+def pydantic_encoder(obj: Any) -> Any:
+    """
+    一个自定义的编码器，用于在遇到 BaseModel 实例时，将其转换为字典。
+    """
+    if isinstance(obj, BaseModel):
+        return obj.model_dump() 
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def save_env_implement_states_to_json(states: EnvImplementState, project_path: Path):
+    FILE_PATH = f"{project_path}/prometheus_env_implement_states_{timestamp}.json"
+    with open(FILE_PATH, "w") as f:
+        json.dump(states, f, default=pydantic_encoder, indent=4, ensure_ascii=False)
+
+def load_env_implement_states_from_json(project_path: Path) -> EnvImplementState:
+    FILE_PATH = f"{project_path}/prometheus_env_implement_states_{timestamp}.json"
+    with open(FILE_PATH, "r") as f:
+        return json.load(f)

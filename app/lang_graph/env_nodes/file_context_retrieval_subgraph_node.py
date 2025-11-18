@@ -8,6 +8,7 @@ from app.lang_graph.env_nodes.file_context_retrieval_subgraph import FileContext
 from app.models.context import Context
 from app.utils.logger_manager import get_thread_logger
 
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 class FileContextRetrievalSubgraphNode:
     def __init__(
@@ -30,11 +31,13 @@ class FileContextRetrievalSubgraphNode:
         )
         self.query_key_name = query_key_name
         self.context_key_name = context_key_name
-
+        self.local_path = local_path
     def __call__(self, state: Dict) -> Dict[str, Sequence[Context]]:
         self._logger.info("Enter context retrieval subgraph")
         output_state = self.file_context_retrieval_subgraph.invoke(
             state[self.query_key_name], state["max_refined_query_loop"]
         )
         self._logger.info(f"Context retrieved: {output_state['context']}")
-        return {self.context_key_name: output_state["context"]}
+        state_update = {self.context_key_name: output_state["context"]}
+        save_env_implement_states_to_json(state_update, self.local_path)
+        return state_update

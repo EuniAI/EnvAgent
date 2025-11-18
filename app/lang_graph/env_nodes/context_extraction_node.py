@@ -13,6 +13,7 @@ from app.utils.lang_graph_util import (
     transform_tool_messages_to_str,
 )
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 SYS_PROMPT = """\
 You are a context summary agent that summarizes code contexts which is relevant to a given query.
@@ -166,4 +167,5 @@ class ContextExtractionNode:
                 final_context = final_context + [context]
 
         self._logger.info(f"Context extraction complete, returning context {final_context}")
+        save_env_implement_states_to_json(state, self.root_path)
         return {"context": final_context}

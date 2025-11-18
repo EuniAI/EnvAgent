@@ -6,7 +6,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.states.env_implement_state import EnvImplementState
+from app.lang_graph.states.env_implement_state import EnvImplementState, save_env_implement_states_to_json
 from app.tools import file_operation
 from app.utils.lang_graph_util import get_last_message_content
 from app.utils.logger_manager import get_thread_logger
@@ -113,4 +113,5 @@ class EnvImplementFileNode:
         else:
             self._logger.debug("No file path found in current messages")
 
+        save_env_implement_states_to_json(result, self.local_path)
         return result
