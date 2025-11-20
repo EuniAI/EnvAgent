@@ -136,6 +136,7 @@ class FileContextRetrievalSubgraph:
         input_state = {
             "query": query,
             "max_refined_query_loop": max_refined_query_loop,
+            "involved_files": [],  # Initialize empty list for tracking all searched files
         }
 
         output_state = self.subgraph.invoke(input_state, config)

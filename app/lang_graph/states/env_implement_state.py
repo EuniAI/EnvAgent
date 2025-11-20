@@ -24,6 +24,7 @@ class EnvImplementState(TypedDict):
         str  # The refined query for environment implementation file context
     )
     env_implement_file_context: Sequence[Context]  # The context for environment implementation file
+    
 
     env_implement_write_messages: Annotated[
         Sequence[BaseMessage], add_messages
@@ -64,6 +65,7 @@ class EnvImplementState(TypedDict):
 
     env_error_analysis: str  # 分析test_result或者env_implement_result中的错误原因
     check_state: Dict[str, Any]
+    involved_files: Sequence[str]  # Files that have been confirmed as not found during context search, to avoid repeated searches
 
 
 

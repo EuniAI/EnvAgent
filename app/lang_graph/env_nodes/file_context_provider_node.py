@@ -86,6 +86,13 @@ Critical Rules (关键规则):
 - Prioritize configuration files over source code files 
 - Do not repeat the same query! 
 - Always verify file paths and content relevance
+- DO NOT search for files that have already been searched (see involved_files list below)
+
+Files Already Searched (已搜索的文件):
+The following files have already been searched in previous iterations. DO NOT search for them again:
+{involved_files}
+
+If the involved_files list is empty, you can search for any relevant files. Otherwise, focus on files NOT in this list.
 
 In your response, provide a concise summary (3-4 sentences) of the environment configuration files found and their relevance to Dockerfile generation. 
 
@@ -125,7 +132,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         self.root_node_id = kg.root_node_id
         self.max_token_per_result = max_token_per_result
         self.local_path = local_path
-        self.system_prompt = SystemMessage(self.SYS_PROMPT.format(file_tree=kg.get_file_tree()))
+        self.kg = kg  # Store kg to access file_tree dynamically
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
         self._logger, _file_handler = get_thread_logger(__name__)
@@ -302,8 +309,32 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         Returns:
           Dictionary that will update the state with the model's response messages.
         """
+        # Get involved_files from state to prevent duplicate searches
+        involved_files = state.get("involved_files", [])
+        if not isinstance(involved_files, list):
+            involved_files = list(involved_files) if involved_files else []
+        
+        # Format involved_files list for the prompt
+        if involved_files:
+            involved_files_str = "\n".join([f"  - {file}" for file in involved_files])
+        else:
+            involved_files_str = "  (No files have been searched yet)"
+        
+        # Create system prompt dynamically with involved_files
+        system_prompt = SystemMessage(
+            self.SYS_PROMPT.format(
+                file_tree=self.kg.get_file_tree(),
+                involved_files=involved_files_str
+            )
+        )
+        
+        if involved_files:
+            self._logger.info(
+                f"FileContextProvider: Avoiding search for {len(involved_files)} already searched files: {involved_files}"
+            )
+        
         # self._logger.debug(f"Context provider messages: {state['context_provider_messages']}")
-        message_history = [self.system_prompt] + state["context_provider_messages"]
+        message_history = [system_prompt] + state["context_provider_messages"]
         response = self.model_with_tools.invoke(message_history)
         self._logger.debug(response)
         # The response will be added to the bottom of the list

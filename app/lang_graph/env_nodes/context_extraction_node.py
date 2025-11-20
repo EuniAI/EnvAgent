@@ -1,6 +1,7 @@
 from typing import Sequence
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,7 @@ from app.utils.lang_graph_util import (
     transform_tool_messages_to_str,
 )
 from app.utils.logger_manager import get_thread_logger
+from app.utils.neo4j_util import EMPTY_DATA_MESSAGE
 from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 SYS_PROMPT = """\
@@ -120,10 +122,48 @@ class ContextExtractionNode:
             context=full_context_str,
         )
 
+    def extract_files_from_messages(self, messages: list) -> list[str]:
+        """Extract files that were searched but not found from tool messages."""
+        involved_files = []
+        tool_call_map = {}  # tool_call_id -> (tool_name, args)
+        
+        # First pass: collect all tool calls from AIMessages
+        for message in messages:
+            if isinstance(message, AIMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    tool_call_id = tool_call.get("id", "")
+                    tool_name = tool_call.get("name", "")
+                    tool_args = tool_call.get("args", {})
+                    if tool_call_id and tool_name:
+                        tool_call_map[tool_call_id] = (tool_name, tool_args)
+        
+        # Second pass: check ToolMessages for empty results
+        for message in messages:
+            if isinstance(message, ToolMessage):
+                tool_call_id = message.tool_call_id
+                content = str(message.content) if message.content else ""
+                artifact = getattr(message, "artifact", [])
+                
+                # Check if empty result: content contains EMPTY_DATA_MESSAGE or artifact is empty list
+                is_empty = EMPTY_DATA_MESSAGE in content or (isinstance(artifact, list) and len(artifact) == 0)
+                
+                if is_empty and tool_call_id in tool_call_map:
+                    tool_name, tool_args = tool_call_map[tool_call_id]
+                    
+                    # Only track file search tools
+                    if tool_name in ["find_file_node_with_basename", "find_file_node_with_relative_path"]:
+                        file_name = tool_args.get("basename") or tool_args.get("relative_path")
+                        if file_name and file_name not in involved_files:
+                            involved_files.append(file_name)
+                            self._logger.debug(f"Marked file as involved: {file_name}")
+        
+        return involved_files
+
     def __call__(self, state: ContextRetrievalState):
         """
         Extract relevant code contexts from the codebase based on the user query and existing context.
         The final contexts are with line numbers.
+        Also extracts not found files from tool messages before they are reset.
         """
         self._logger.info("Starting context extraction process")
         # Get Context List with existing context
@@ -166,6 +206,26 @@ class ContextExtractionNode:
             if context not in final_context:
                 final_context = final_context + [context]
 
+        # Extract not found files from messages before they are reset
+        previous_messages = state.get("context_provider_messages", [])
+        involved_files = self.extract_files_from_messages(previous_messages)
+        
+        # Merge with existing not_found_files in state (avoid duplicates)
+        existing_involved_files = state.get("involved_files", [])
+        if not isinstance(existing_involved_files, list):
+            existing_involved_files = list(existing_involved_files) if existing_involved_files else []
+        
+        all_involved_files = list(existing_involved_files)
+        for file_name in involved_files:
+            if file_name not in all_involved_files:
+                all_involved_files.append(file_name)
+            else:
+                self._logger.info(f"File {file_name} already involved, skipping")
+        
+        
+        if involved_files:
+            self._logger.info(f"Found {len(involved_files)} newly involved files: {involved_files}")
+
         self._logger.info(f"Context extraction complete, returning context {final_context}")
         save_env_implement_states_to_json(state, self.root_path)
-        return {"context": final_context}
+        return {"context": final_context, "involved_files": all_involved_files}

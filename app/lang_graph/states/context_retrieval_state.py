@@ -13,3 +13,4 @@ class ContextRetrievalState(TypedDict):
     context_provider_messages: Annotated[Sequence[BaseMessage], add_messages]
     refined_query: str
     context: Sequence[Context]
+    involved_files: Sequence[str]  # Files that have been searched (found or not found), to avoid repeated searches

@@ -43,6 +43,7 @@ class EnvImplementFileNode:
         self.tools = self._init_tools(local_path)
         self.model_with_tools = model.bind_tools(self.tools)
         self.system_prompt = SystemMessage(self.SYS_PROMPT)
+        self.local_path = local_path
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def _init_tools(self, root_path: str):
