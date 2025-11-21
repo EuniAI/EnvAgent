@@ -140,5 +140,6 @@ class FileContextRetrievalSubgraph:
         }
 
         output_state = self.subgraph.invoke(input_state, config)
+        output_state.update(output_state)
         save_env_implement_states_to_json(output_state, self.local_path)
-        return {"context": output_state["context"]}
+        return output_state

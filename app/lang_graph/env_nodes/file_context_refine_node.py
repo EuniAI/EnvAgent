@@ -256,5 +256,6 @@ If additional context is needed:
         #         HumanMessage(content=filtered_refined_query)
         #     ]
 
+        state.update(state_update)
         save_env_implement_states_to_json(state, self.local_path)
         return state_update

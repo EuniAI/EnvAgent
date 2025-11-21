@@ -64,5 +64,6 @@ Generate a corrected bash script that addresses these issues.
             f"Sending bash script generation message to EnvImplementWriteNode:\n{human_message}"
         )
         state_update = {"env_implement_write_messages": [human_message]}
-        save_env_implement_states_to_json(state_update, self.local_path)
+        state.update(state_update)
+        save_env_implement_states_to_json(state, self.local_path)
         return state_update

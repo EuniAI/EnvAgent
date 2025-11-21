@@ -188,5 +188,6 @@ main "$@"
 
         self._logger.debug(response)
         state_update = {"env_implement_write_messages": [response]}
-        save_env_implement_states_to_json(state_update, self.local_path)
+        state.update(state_update)
+        save_env_implement_states_to_json(state, self.local_path)
         return state_update

@@ -338,5 +338,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         response = self.model_with_tools.invoke(message_history)
         self._logger.debug(response)
         # The response will be added to the bottom of the list
+        state_update = {"context_provider_messages": [response]}
+        state.update(state_update)
         save_env_implement_states_to_json(state, self.local_path)
-        return {"context_provider_messages": [response]}
+        return state_update

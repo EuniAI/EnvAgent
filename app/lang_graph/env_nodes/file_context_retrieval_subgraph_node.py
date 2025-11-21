@@ -39,5 +39,6 @@ class FileContextRetrievalSubgraphNode:
         )
         self._logger.info(f"Context retrieved: {output_state['context']}")
         state_update = {self.context_key_name: output_state["context"]}
-        save_env_implement_states_to_json(state_update, self.local_path)
+        state.update(state_update)
+        save_env_implement_states_to_json(state, self.local_path)
         return state_update

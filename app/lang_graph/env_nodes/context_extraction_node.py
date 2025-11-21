@@ -227,5 +227,10 @@ class ContextExtractionNode:
             self._logger.info(f"Found {len(involved_files)} newly involved files: {involved_files}")
 
         self._logger.info(f"Context extraction complete, returning context {final_context}")
+        state_update = {
+            "context": final_context,
+            "involved_files": all_involved_files,
+        }
+        state.update(state_update)
         save_env_implement_states_to_json(state, self.root_path)
-        return {"context": final_context, "involved_files": all_involved_files}
+        return state_update

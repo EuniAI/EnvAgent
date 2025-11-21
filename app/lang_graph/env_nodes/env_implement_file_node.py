@@ -1,118 +1,98 @@
-import functools
 from pathlib import Path
 
-from langchain.tools import StructuredTool
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
-
-from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.states.env_implement_state import EnvImplementState, save_env_implement_states_to_json
-from app.tools import file_operation
 from app.utils.lang_graph_util import get_last_message_content
 from app.utils.logger_manager import get_thread_logger
 
 
 class EnvImplementFileNode:
-    SYS_PROMPT = """\
-    You are a bash script file manager. Your task is to save the provided bash script in the project. You should:
+    """直接实现文件创建功能，不使用 agent，避免不稳定因素。"""
 
-    1. Examine the project structure to identify the best location for the bash script (typically at the project root)
-    2. Use the create_file tool to save the bash script in a SINGLE new file named "prometheus_setup.sh" (with .sh extension, prefix with "prometheus" is needed)
-    3. After creating the file, return its relative path
-
-    Tools available:
-    - read_file: Read the content of a file
-    - create_file: Create a new SINGLE file with specified content
-
-
-    If the target file already exists and its name starts with "prometheus", overwrite the original file. 
-    If the file already exists but its name does not start with "prometheus", create a new file by appending "_2" to the filename. 
-    Respond with the relative path of the file that was created or overwritten.
-    """
-
-    HUMAN_PROMPT = """\
-    Save this bash script in the project:
-    {env_implement_bash_content}
-
-    Current project structure:
-    {project_structure}
-    """
-
-    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph, local_path: str):
-        self.kg = kg
-        self.tools = self._init_tools(local_path)
-        self.model_with_tools = model.bind_tools(self.tools)
-        self.system_prompt = SystemMessage(self.SYS_PROMPT)
+    def __init__(self, model, kg, local_path: str):
+        """初始化节点。
+        
+        Args:
+            model: 保留参数以兼容现有接口，但不再使用
+            kg: 保留参数以兼容现有接口，但不再使用
+            local_path: 项目根目录路径
+        """
         self.local_path = local_path
         self._logger, _file_handler = get_thread_logger(__name__)
+        # 保留空的 tools 列表以兼容 subgraph 中的 ToolNode
+        self.tools = []
 
-    def _init_tools(self, root_path: str):
-        """Initializes file operation tools with the given root path.
-
+    def _determine_file_path(self, root_path: str) -> str:
+        """确定要创建的文件路径。
+        
+        根据规则：
+        1. 优先使用 "prometheus_setup.sh"
+        2. 如果文件已存在且以 "prometheus" 开头，则覆盖
+        3. 如果文件已存在但名称不以 "prometheus" 开头，则创建新文件（添加 "_2"）
+        
         Args:
-          root_path: Base directory path for all file operations.
-
+            root_path: 项目根目录路径
+            
         Returns:
-          List of StructuredTool instances configured for file operations.
+            相对路径字符串
         """
-        tools = []
-
-        read_file_fn = functools.partial(file_operation.read_file, root_path=root_path)
-        read_file_tool = StructuredTool.from_function(
-            func=read_file_fn,
-            name=file_operation.read_file.__name__,
-            description=file_operation.READ_FILE_DESCRIPTION,
-            args_schema=file_operation.ReadFileInput,
-        )
-        tools.append(read_file_tool)
-
-        create_file_fn = functools.partial(file_operation.create_file, root_path=root_path)
-        create_file_tool = StructuredTool.from_function(
-            func=create_file_fn,
-            name=file_operation.create_file.__name__,
-            description=file_operation.CREATE_FILE_DESCRIPTION,
-            args_schema=file_operation.CreateFileInput,
-        )
-        tools.append(create_file_tool)
-
-        return tools
-
-    def format_human_message(self, state: EnvImplementState) -> HumanMessage:
-        return HumanMessage(
-            self.HUMAN_PROMPT.format(
-                env_implement_bash_content=get_last_message_content(
-                    state["env_implement_write_messages"]
-                ),
-                project_structure=self.kg.get_file_tree(),
-            )
-        )
+        base_filename = "prometheus_setup.sh"
+        file_path = Path(root_path) / base_filename
+        
+        # 如果文件不存在，直接返回
+        if not file_path.exists():
+            return base_filename
+        
+        # 如果文件存在且以 "prometheus" 开头，覆盖
+        if file_path.name.startswith("prometheus"):
+            self._logger.info(f"File {base_filename} exists and starts with 'prometheus', will overwrite")
+            return base_filename
+        
+        # 如果文件存在但不以 "prometheus" 开头，创建新文件
+        name_without_ext = file_path.stem
+        extension = file_path.suffix
+        new_filename = f"{name_without_ext}_2{extension}"
+        self._logger.info(f"File {base_filename} exists but doesn't start with 'prometheus', will create {new_filename}")
+        return new_filename
 
     def __call__(self, state: EnvImplementState):
-        message_history = [self.system_prompt, self.format_human_message(state)] + state[
-            "env_implement_file_messages"
-        ]
-
-        response = self.model_with_tools.invoke(message_history)
-        self._logger.debug(response)
-
-        # Prepare the return dictionary
-        result = {"env_implement_file_messages": [response]}
-
-        # Check if there are any tool call responses in the current messages
-        # (This happens when we're called after tool execution)
-        file_path = ""
-        for tool_call in response.tool_calls:
-            if tool_call["name"] == file_operation.create_file.__name__:
-                file_path = tool_call["args"]["relative_path"]
-                break
-
-        # If we found a file path, add it to the state
-        if file_path:
-            # Convert relative path to Path object for dockerfile_path
-            result["env_implement_bash_path"] = Path(file_path)
-            self._logger.info(f"Extracted bash script path: {file_path}")
-        else:
-            self._logger.debug("No file path found in current messages")
-
-        save_env_implement_states_to_json(result, self.local_path)
+        """执行文件创建操作。
+        
+        Args:
+            state: EnvImplementState 状态对象
+            
+        Returns:
+            包含 env_implement_bash_path 的字典
+        """
+        # 从状态中获取 bash 脚本内容
+        bash_content = get_last_message_content(state["env_implement_write_messages"])
+        
+        if not bash_content:
+            self._logger.error("No bash content found in env_implement_write_messages")
+            result = {}
+            state.update(result)
+            save_env_implement_states_to_json(state, self.local_path)
+            return result
+        
+        # 确定文件路径
+        relative_path = self._determine_file_path(self.local_path)
+        file_path = Path(self.local_path) / relative_path
+        
+        # 如果文件存在且需要覆盖，先删除
+        if file_path.exists():
+            if file_path.name.startswith("prometheus"):
+                file_path.unlink()
+                self._logger.info(f"Deleted existing file: {relative_path}")
+        
+        # 创建文件（如果父目录不存在会自动创建）
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(bash_content)
+        self._logger.info(f"Created bash script file: {relative_path}")
+        
+        # 准备返回结果
+        result = {
+            "env_implement_bash_path": relative_path
+        }
+        
+        state.update(result)
+        save_env_implement_states_to_json(state, self.local_path)
         return result
