@@ -1,8 +1,10 @@
 import json
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import PosixPath
+from threading import Lock
 from typing import Any, Dict, List
 
 import click
@@ -313,22 +315,33 @@ def reproduce_test(
     help="File to save the predictions or continue patch generating.",
     default=f"projects/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
 )
+@click.option(
+    "--max_workers",
+    "-w",
+    help="最大线程数，默认为4",
+    default=4,
+    type=int,
+)
 def main(
     dataset_file_path: str,
     github_token: str,
     file: str,
+    max_workers: int,
 ):
     # 解析 all_projects.txt 文件、
     projects = parse_all_projects_file(dataset_file_path)
     logger.info(f"成功解析 {len(projects)} 个项目")
 
-    # 初始化预测结果字典
+    # 初始化预测结果字典和锁
     predictions = {}
+    predictions_lock = Lock()
 
-    for project in tqdm(projects):
+    def process_project(project: Dict[str, str]) -> tuple[str, Dict[str, Any]]:
+        """处理单个项目的函数，用于多线程执行"""
+        project_name = project["name"]
         try:
             # 记录当前处理的项目信息
-            logger.info(f"开始处理项目: {project['name']} ")
+            logger.info(f"开始处理项目: {project_name} ")
 
             github_url = project["repo_url"]
 
@@ -339,7 +352,7 @@ def main(
 
             # Create project result with all states
             project_result = {
-                "project_name": project["name"],
+                "project_name": project_name,
                 "project_repo_url": project["repo_url"],
                 "success": success,
                 "playground_path": str(playground_path) if playground_path else None,
@@ -351,11 +364,8 @@ def main(
                 "timestamp": datetime.now().isoformat(),
             }
 
-            # Add to predictions
-            predictions[project["name"]] = project_result
-
             # Log the states immediately
-            logger.info(f"Project {project['name']} completed successfully: {success}")
+            logger.info(f"Project {project_name} completed successfully: {success}")
             if playground_path:
                 logger.info(f"Playground path: {playground_path}")
             if container_info:
@@ -365,16 +375,18 @@ def main(
             if env_states:
                 logger.info(f"Environment states keys: {list(env_states.keys())}")
 
+            return project_name, project_result
+
         except Exception as e:
             # 捕获所有异常，记录错误信息并继续处理下一个项目
             error_message = str(e)
             error_traceback = traceback.format_exc()
-            logger.error(f"处理项目 {project['name']} 时发生错误: {error_message}")
+            logger.error(f"处理项目 {project_name} 时发生错误: {error_message}")
             logger.error(f"错误堆栈:\n{error_traceback}")
 
             # 创建错误结果
             project_result = {
-                "project_name": project["name"],
+                "project_name": project_name,
                 "project_repo_url": project.get("repo_url", "unknown"),
                 "success": False,
                 "error": error_message,
@@ -386,16 +398,36 @@ def main(
                 "timestamp": datetime.now().isoformat(),
             }
 
-            # 添加错误结果到 predictions
-            predictions[project["name"]] = project_result
+            return project_name, project_result
 
-        finally:
-            # 无论成功还是失败，都保存当前进度到 JSON 文件
-            try:
-                with open(file, "w", encoding="utf-8") as f:
-                    json.dump(predictions, f, indent=4, ensure_ascii=False)
-            except Exception as save_error:
-                logger.error(f"保存结果文件时发生错误: {save_error}")
+    # 使用线程池并行处理项目
+    logger.info(f"使用 {max_workers} 个线程并行处理项目")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_project = {
+            executor.submit(process_project, project): project for project in projects
+        }
+
+        # 使用tqdm显示进度
+        with tqdm(total=len(projects), desc="处理项目") as pbar:
+            for future in as_completed(future_to_project):
+                try:
+                    project_name, project_result = future.result()
+                    # 线程安全地更新predictions字典
+                    with predictions_lock:
+                        predictions[project_name] = project_result
+                        # 保存当前进度到 JSON 文件
+                        try:
+                            with open(file, "w", encoding="utf-8") as f:
+                                json.dump(predictions, f, indent=4, ensure_ascii=False)
+                        except Exception as save_error:
+                            logger.error(f"保存结果文件时发生错误: {save_error}")
+                except Exception as e:
+                    logger.error(f"获取任务结果时发生错误: {str(e)}")
+                finally:
+                    pbar.update(1)
+
+    logger.info(f"所有项目处理完成，结果已保存到 {file}")
 
 
 if __name__ == "__main__":
