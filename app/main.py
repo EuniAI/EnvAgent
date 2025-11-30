@@ -26,7 +26,7 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = False
+debug_mode = True
 
 
 test_mode = "pyright"  # generation pyright pytest
@@ -94,12 +94,20 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 project_name = parts[0]
                 repo_url = "http://github.com/" + project_name
                 project_tag = parts[1]
-
                 project_info = {
                     "name": project_name,
                     "repo_url": repo_url,
                     'tag': project_tag,
                 }
+                
+                if len(parts) > 2:
+                    project_path = parts[2]
+                    project_info["project_path"] = project_path
+                else:
+                    project_info["project_path"] = None
+
+
+                
                 projects.append(project_info)
 
     except FileNotFoundError:
@@ -148,11 +156,7 @@ def reproduce_test(
     github_url: str,
     github_token: str,
     project_tag: str,
-    workdir: str = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
-    # if dockerfile_content or image_name:
-    if workdir is None:
-        raise Exception("workdir must be provided for user defined environment")
     # Get or create repository (repository-based logic)
     logger.info("Getting or creating repository...")
     repo_path, root_node_id, is_new_repository = repository_service.get_or_create_repository(
@@ -218,44 +222,47 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
     )
     
-    testsuite_commands = []
-    logger.info("Starting testsuite...")
-    if test_mode == "generation":
+    if debug_mode:
+        pass
+    elif not debug_mode:
+        testsuite_commands = []
+        logger.info("Starting testsuite...")
+        if test_mode == "generation":
+            try:
+                testsuiteoutput_states = testsuite_subgraph.invoke(
+                    max_refined_query_loop=5,
+                )
+                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+                with open(
+                    os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
+                ) as f:
+                    for command in testsuite_commands:
+                        f.write(command + "\n")
+            except Exception as e:
+                logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+                # Clear the knowledge graph and repository
+                container.cleanup()
+                git_repo.reset_repository()
+                logger.removeHandler(file_handler)
+                file_handler.close()
+                return False, None, None, None, None
+
+        logger.info("Starting environment implementation...")
+        """
+        todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
+        """
         try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(
-                max_refined_query_loop=5,
+            env_output_states = env_implement_subgraph.invoke(
+                recursion_limit=200,
             )
-            testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
-            with open(
-                os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
-            ) as f:
-                for command in testsuite_commands:
-                    f.write(command + "\n")
         except Exception as e:
-            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
             container.cleanup()
             git_repo.reset_repository()
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None, None
-
-    logger.info("Starting environment implementation...")
-    """
-    todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
-    """
-    try:
-        env_output_states = env_implement_subgraph.invoke(
-            recursion_limit=200,
-        )
-    except Exception as e:
-        logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-        # Clear the knowledge graph and repository
-        container.cleanup()
-        git_repo.reset_repository()
-        logger.removeHandler(file_handler)
-        file_handler.close()
-        return False, None, None, None, None
 
 
     if test_mode == "generation":
@@ -277,12 +284,12 @@ def reproduce_test(
     }
     if test_mode == "generation":
         doc["test_command"] = testsuite_commands
-
-    try:
-        env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=50)
-    except Exception as e:
-        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-        return False, None, None, None, None
+    if debug_mode:
+        try:
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=50)
+        except Exception as e:
+            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+            return False, None, None, None, None
 
     # Get container information
     container_info = container.print_container_info()
@@ -318,7 +325,7 @@ def reproduce_test(
 @click.option(
     "--max_workers",
     "-w",
-    help="最大线程数，默认为4",
+    help="max_workers: maximum number of threads, default is 4",
     default=4,
     type=int,
 )
@@ -347,7 +354,7 @@ def main(
 
             # Reproduce the bug
             success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
-                github_url, github_token, project['tag'], "/testbed"
+                github_url, github_token, project['tag']
             )
 
             # Create project result with all states

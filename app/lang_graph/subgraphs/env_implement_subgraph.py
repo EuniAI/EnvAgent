@@ -72,10 +72,7 @@ class EnvImplementSubgraph:
         workflow.add_node(
             "env_implement_file_context_message_node", env_implement_file_context_message_node
         )
-        if debug_mode:  # 在debug模式下，直接跳过文件上下文检索子图
-            pass
-        elif not debug_mode:  # 在正常情况下，添加文件上下文检索子图
-            workflow.add_node("file_context_retrieval_subgraph_node", file_context_retrieval_subgraph_node)
+        workflow.add_node("file_context_retrieval_subgraph_node", file_context_retrieval_subgraph_node)
 
 
         workflow.add_node(
@@ -89,11 +86,8 @@ class EnvImplementSubgraph:
 
         
         workflow.set_entry_point("env_implement_file_context_message_node")
-        if debug_mode:
-            workflow.add_edge("env_implement_file_context_message_node", "env_implement_write_message_node")
-        elif not debug_mode:
-            workflow.add_edge("env_implement_file_context_message_node", "file_context_retrieval_subgraph_node")
-            workflow.add_edge("file_context_retrieval_subgraph_node", "env_implement_write_message_node")
+        workflow.add_edge("env_implement_file_context_message_node", "file_context_retrieval_subgraph_node")
+        workflow.add_edge("file_context_retrieval_subgraph_node", "env_implement_write_message_node")
 
         workflow.add_edge("env_implement_write_message_node", "env_implement_write_node")
         # Handle patch-writing tool usage or fallback
@@ -126,13 +120,9 @@ class EnvImplementSubgraph:
         self,
         recursion_limit: int = 200,
     ):
-        if self.debug_mode:
-            import json, os
-            input_state = json.load(open(os.path.join("/tmp/envagent_vee2tj2u/proselint/prometheus_env_implement_states_20251120_161128.json")))
-        elif not self.debug_mode:
-            input_state = {
-                "max_refined_query_loop": 3,
-            }
+        input_state = {
+            "max_refined_query_loop": 3,
+        }
 
         config = {"recursion_limit": recursion_limit}
         output_state = self.subgraph.invoke(input_state, config)

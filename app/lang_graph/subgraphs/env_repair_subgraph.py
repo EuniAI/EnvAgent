@@ -21,6 +21,9 @@ from app.lang_graph.repair_nodes.env_repair_pyright_execute_node import EnvRepai
 from app.lang_graph.repair_nodes.env_repair_pyright_analyse_node import EnvRepairPyrightAnalyseNode
 from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
 from app.lang_graph.states.env_implement_state import EnvImplementState
+from app.utils.logger_manager import get_thread_logger
+
+logger, _file_handler = get_thread_logger(__name__)
 
 
 def router_function(state: Dict) -> str:
@@ -34,23 +37,28 @@ def router_function(state: Dict) -> str:
 
         # 情况1：没有 env_implement_result，首次执行环境命令
         if env_success == 0:
+            logger.info("case1: no env_implement_result, first time to execute env command")
             return "case1"
 
         # 情况2：环境失败，需要分析错误
         if env_success == -1:
+            logger.info("case2: env_success == -1, env failed, need to analyse error")
             return "case2"
 
         # 情况3：环境成功，但还没有运行测试
         if env_success == 1 and test_success == 0:
+            logger.info("case3: env_success == 1 and test_success == 0, env success, but not run test")
             return "case3"
 
         # 情况4：环境成功但测试失败
         if env_success == 1 and test_success == -1:
+            logger.info("case4: env_success == 1 and test_success == -1, env success, but test failed")
             return "case4"
 
         # todo 是否会出现，环境首次成功，但是二次运行后失败的情况？
 
         # 默认情况：都成功
+        logger.info("default case: all success")
         return "success"
     else:
         raise ValueError("check_state is not found")

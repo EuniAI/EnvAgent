@@ -98,7 +98,6 @@ class RepositoryService(BaseService):
             github_token: GitHub access token for authentication.
             https_url: HTTPS URL of the GitHub repository.
             commit_id: Optional specific commit to check out.
-
         Returns:
             Tuple of (repository_path, kg_root_node_id, is_new_repository)
         """
