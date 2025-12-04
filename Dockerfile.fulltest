@@ -1,0 +1,104 @@
+FROM ubuntu:24.04
+
+# 避免交互式安装时卡住
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# 安装基础工具 & 你需要的工具
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    nodejs \
+    npm \
+    default-jdk \
+    gcc \
+    g++ \
+    gdb \
+    postgresql-client \
+    mysql-client \
+    sqlite3 \
+    iputils-ping \
+    vim \
+    nano \
+    zip \
+    unzip \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    gosu \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update && apt-get install -y docker-ce-cli \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create symbolic link for python
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
+WORKDIR /app
+
+# 拷贝你的项目代码
+COPY . /app/
+
+# 创建 entrypoint 脚本来处理用户权限和保持容器运行
+RUN cat > /entrypoint.sh << 'ENTRYPOINT_EOF'
+#!/bin/bash
+set -euo pipefail
+# Template version: 2025-12-03
+
+log() {
+    echo "[entrypoint] $*"
+}
+
+keep_alive_cmd="tail -f /dev/null"
+
+if [[ -n "${HOST_UID:-}" && -n "${HOST_GID:-}" ]]; then
+    HOST_USER="${HOST_USER:-appuser}"
+    existing_user="$(getent passwd "${HOST_UID}" 2>/dev/null | cut -d: -f1 || true)"
+
+    if [[ -z "${existing_user}" ]]; then
+        log "Creating user ${HOST_USER} (${HOST_UID}:${HOST_GID})"
+        groupadd -g "${HOST_GID}" "${HOST_USER}" 2>/dev/null || true
+        useradd -u "${HOST_UID}" -g "${HOST_GID}" -m -s /bin/bash "${HOST_USER}" 2>/dev/null || true
+    else
+        HOST_USER="${existing_user}"
+        log "Using existing user ${HOST_USER} (${HOST_UID}:${HOST_GID})"
+    fi
+
+    chown -R "${HOST_UID}:${HOST_GID}" /app 2>/dev/null || true
+
+    if [[ $# -eq 0 ]]; then
+        exec gosu "${HOST_USER}" /bin/bash -lc "${keep_alive_cmd}"
+    else
+        exec gosu "${HOST_USER}" "$@"
+    fi
+else
+    if [[ $# -eq 0 ]]; then
+        exec /bin/bash -lc "${keep_alive_cmd}"
+    else
+        exec "$@"
+    fi
+fi
+ENTRYPOINT_EOF
+
+# 确保 entrypoint 可执行且成功写入
+RUN chmod +x /entrypoint.sh && chown root:root /entrypoint.sh && test -s /entrypoint.sh
+
+# 使用 tail -f /dev/null 保持容器运行 — 方便你 exec 进去调试
+# 推荐 debug 用途。生产有真实服务时，应启动那个服务作为主进程。
+ENTRYPOINT ["/entrypoint.sh"]
+# Default CMD is empty, entrypoint will handle keeping container alive with tail -f /dev/null
+CMD []

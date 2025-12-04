@@ -204,7 +204,8 @@ class EnvRepairSubgraph:
             workflow.add_edge("execute_pyright", "check_status")
             # 如果 pyright 检查失败（issues_count > 0），会通过 router 分析错误并生成修复命令
             workflow.add_edge("analyse_pyright_error", "update_command")
-            workflow.add_edge("update_command", "execute_env")
+            # workflow.add_edge("update_command", "execute_env")
+            # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
 
         # 检查状态后，决定是否继续循环
         workflow.add_conditional_edges(

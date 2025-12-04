@@ -186,6 +186,50 @@ def edit_file(relative_path: str, root_path: str, old_content: str, new_content:
         )
 
     new_content_full = content.replace(old_content, new_content)
-    file_path.write_text(new_content_full)
+    
+    # Check and fix file permissions before writing
+    original_owner_uid = None
+    original_owner_gid = None
+    try:
+        # Check if file is writable
+        if not os.access(file_path, os.W_OK):
+            # 记录原始所有者信息
+            file_stat = file_path.stat()
+            original_owner_uid = file_stat.st_uid
+            original_owner_gid = file_stat.st_gid
+            
+            # Try to change ownership to current user (requires running as root)
+            try:
+                current_uid = os.getuid()
+                current_gid = os.getgid()
+                os.chown(file_path, current_uid, current_gid)
+                logger.info(f"Changed ownership of {relative_path} to current user for editing")
+            except (PermissionError, OSError):
+                # If chown fails, try chmod instead
+                current_mode = file_path.stat().st_mode
+                file_path.chmod(current_mode | 0o200)
+                logger.info(f"Fixed write permissions for {relative_path}")
+    except Exception as perm_error:
+        logger.warning(f"Could not fix permissions for {relative_path}: {str(perm_error)}")
+    
+    try:
+        file_path.write_text(new_content_full)
+    except PermissionError as e:
+        error_msg = (
+            f"Permission denied when editing {relative_path}. "
+            f"The file may be read-only or owned by another user (root). "
+            f"Please ensure the container command runs with fix_permissions=True. "
+            f"Error: {str(e)}"
+        )
+        logger.error(error_msg)
+        return error_msg
+    except Exception as e:
+        error_msg = f"Error writing to {relative_path}: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+    finally:
+        # 如果改变了所有权，尝试恢复原始所有者（但通常我们希望保持当前用户所有权）
+        # 这里注释掉，因为我们希望文件保持为当前用户所有权
+        pass
 
     return f"Successfully edited {relative_path}."

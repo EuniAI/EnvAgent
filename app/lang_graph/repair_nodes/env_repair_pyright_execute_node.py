@@ -30,8 +30,8 @@ class EnvRepairPyrightExecuteNode:
         """执行 pyright 环境质量检查"""
         # 使用容器内的工作目录作为项目路径
         project_path = self.container.workdir
-        output_dir = "build_output"
-        script_path = "pyright_env_quality_check.sh"
+        output_dir = "/app/build_output"
+        script_path = "/app/pyright_env_quality_check.sh"
 
         self._logger.info("开始执行环境安装质量检查（pyright 模式）")
 
@@ -43,8 +43,9 @@ class EnvRepairPyrightExecuteNode:
             self._logger.warning(f"添加执行权限失败: {chmod_result.stderr}")
 
         # 运行脚本
+        # 使用 bash -l 启动登录 shell，确保加载 ~/.bashrc（包含虚拟环境激活）
         self._logger.info(f"执行环境质量检查脚本: {script_path}")
-        run_script_cmd = f"bash {script_path} {project_path} {output_dir}"
+        run_script_cmd = f"bash -l -c '{script_path} {project_path} {output_dir}'"
         script_result = self.container.execute_command_with_exit_code(run_script_cmd)
 
 

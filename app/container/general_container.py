@@ -64,6 +64,7 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
+    jq \
     python3 \
     python3-pip \
     python3-dev \
@@ -100,6 +101,16 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Copy project files
 COPY . /app/
+
+# ARG HOST_UID
+# ARG HOST_GID
+# ARG HOST_USER
+
+# RUN groupadd -g ${HOST_GID} ${HOST_USER} && \
+#     useradd -m -u ${HOST_UID} -g ${HOST_GID} ${HOST_USER}
+
+# USER ${HOST_USER}
+
 """
         return DOCKERFILE_CONTENT
 

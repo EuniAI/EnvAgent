@@ -46,6 +46,27 @@ Modification Guidelines:
 - Ensure old_content in edit_file exactly matches the content in the file WITHOUT line number prefixes (including whitespace)
 - Make multiple edit_file calls if you need to modify multiple separate sections
 - Do not modify parts that don't need changes
+
+CRITICAL: Virtual Environment Activation Auto-Setup:
+- If the script contains virtual environment activation commands (e.g., `source /opt/venv/bin/activate` or `. /opt/venv/bin/activate`)
+- AND the repair commands suggest adding bashrc auto-activation logic
+- You MUST integrate this feature by:
+  1. Adding a function (e.g., `setup_auto_activate()`) that writes the activation command to ~/.bashrc
+  2. The function should check if the activation line already exists in ~/.bashrc to avoid duplicates
+  3. Call this function in the main() function or appropriate setup section
+  4. This ensures the virtual environment is automatically activated when users enter the container
+- Example function structure:
+  ```bash
+  setup_auto_activate() {
+    local bashrc_file="/root/.bashrc"
+    local activate_line="source /opt/venv/bin/activate"
+    if ! grep -qF "$activate_line" "$bashrc_file" 2>/dev/null; then
+      echo "" >> "$bashrc_file"
+      echo "# Auto-activate Python virtual environment" >> "$bashrc_file"
+      echo "$activate_line" >> "$bashrc_file"
+    fi
+  }
+  ```
 """
 
     def __init__(self, model: BaseChatModel, container: BaseContainer, local_path: str):
@@ -126,18 +147,30 @@ Modification Guidelines:
         env_implement_result = state.get("env_implement_result", {})
         env_error_analysis = state.get("env_error_analysis", "")
         env_repair_commands = state.get("env_repair_command", [])
+        needs_venv_auto_activate = state.get("needs_venv_auto_activate", False)
 
         # Extract repair commands
         repair_command_list = self._extract_repair_commands(env_repair_commands)
         if not repair_command_list:
             self._logger.warning("No repair commands found, keeping unchanged")
-            return {}
+            # LangGraph requires at least one state field to be updated
+            # 必须返回 env_implement_command_messages 字段，即使为空列表，以便 tools_condition 正常工作
+            # 如果没有消息，使用空列表；如果有现有消息，保持它们不变
+            return {
+                "env_repair_command": [],
+                "env_implement_command_messages": messages,  # 保持现有消息不变（可能是空列表）
+            }
 
         # Extract script file path
         script_file_path = self._get_script_relative_path(env_command)
         if not script_file_path:
             self._logger.warning("No script file path found in command")
-            return {}
+            # LangGraph requires at least one state field to be updated
+            # 必须返回 env_implement_command_messages 字段，即使为空列表，以便 tools_condition 正常工作
+            return {
+                "env_repair_command": [],
+                "env_implement_command_messages": messages,  # 保持现有消息不变（可能是空列表）
+            }
 
         # Build prompt
         repair_commands_text = "\n".join([f"- {cmd}" for cmd in repair_command_list])
@@ -166,6 +199,34 @@ Modification Guidelines:
 
             """
 
+        # Build virtual environment auto-activation section if needed
+        venv_activation_section = ""
+        if needs_venv_auto_activate:
+            venv_activation_section = """
+        CRITICAL: Virtual Environment Auto-Activation Required:
+        - The analysis has determined that the script needs virtual environment auto-activation functionality
+        - The script contains virtual environment activation commands but lacks bashrc auto-activation logic
+        - You MUST add this feature:
+          1. Add a function (e.g., `setup_auto_activate()`) that writes the activation command to ~/.bashrc
+          2. The function should check if the activation line already exists to avoid duplicates
+          3. Extract the virtual environment path from existing activation commands in the script
+          4. Call this function in the main() function or appropriate setup section
+          5. Example function structure:
+             ```bash
+             setup_auto_activate() {
+               local bashrc_file="/root/.bashrc"
+               local activate_line="source /opt/venv/bin/activate"  # Use the actual venv path from script
+               if ! grep -qF "$activate_line" "$bashrc_file" 2>/dev/null; then
+                 echo "" >> "$bashrc_file"
+                 echo "# Auto-activate Python virtual environment" >> "$bashrc_file"
+                 echo "$activate_line" >> "$bashrc_file"
+               fi
+             }
+             ```
+        - This ensures automatic virtual environment activation when users enter the container
+
+        """
+
         prompt_text = f"""\
         {error_analysis_section}{result_section}REPAIR COMMANDS TO INTEGRATE:
         ```
@@ -179,6 +240,7 @@ Modification Guidelines:
         2. Then, use edit_file tool to make PARTIAL modifications - only change the specific parts that need to be fixed based on the repair commands
         3. Make multiple edit_file calls if you need to modify multiple separate sections
         4. DO NOT replace the entire file - only modify what needs to be changed
+        {venv_activation_section}
         """
 
         # Build message history and invoke model with tools

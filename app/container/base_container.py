@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import tarfile
 import tempfile
@@ -77,12 +78,25 @@ class BaseContainer(ABC):
         Creates a Dockerfile in the project directory and builds a Docker image
         using the specified tag name.
         """
+        
+        host_user = os.getenv("USER") or os.getenv("USERNAME") or "lix"
+        host_uid = os.getuid()
+        host_gid = os.getgid()
+
         dockerfile_content = self.get_dockerfile_content()
-        dockerfile_path = self.project_path / "prometheus.Dockerfile"
+        dockerfile_path = self.project_path / "Dockerfile"
         dockerfile_path.write_text(dockerfile_content)
         self._logger.info(f"Building docker image {self.tag_name}")
         self.client.images.build(
-            path=str(self.project_path), dockerfile=dockerfile_path.name, tag=self.tag_name
+            path=str(self.project_path), 
+            dockerfile=dockerfile_path.name, 
+            tag=self.tag_name,
+            # buildargs={
+            #     "HOST_USER": host_user,
+            #     "HOST_UID": str(host_uid),
+            #     "HOST_GID": str(host_gid),
+            # },
+            # rm=True,
         )
 
     def build_empty_docker_image(self):
@@ -131,16 +145,69 @@ WORKDIR /app
             volumes[str(self.project_path)] = {"bind": self.workdir, "mode": "rw"}
             self._logger.info(f"Using volume mapping: {self.project_path} -> {self.workdir}")
 
+        # Get current user UID and GID to pass to container
+        # The entrypoint script will create the user and switch to it
+        environment = {"PYTHONPATH": f"{self.workdir}:$PYTHONPATH"}
+        if os.name != 'nt':  # Unix-like systems only
+            try:
+                host_uid = os.getuid()
+                host_gid = os.getgid()
+                host_user = os.getenv('USER', os.getenv('USERNAME', 'appuser'))
+                # Pass user info as environment variables for entrypoint script
+                environment["HOST_UID"] = str(host_uid)
+                environment["HOST_GID"] = str(host_gid)
+                environment["HOST_USER"] = host_user
+                self._logger.info(f"Container will run as user {host_user} (UID:{host_uid}, GID:{host_gid})")
+            except (AttributeError, OSError) as e:
+                self._logger.warning(f"Could not get user ID, container will run as root: {e}")
+
+        container_kwargs = {
+            "detach": True,
+            "tty": True,
+            "network_mode": "host",
+            "environment": environment,
+            "volumes": volumes,
+        }
+
         self.container = self.client.containers.run(
             self.tag_name,
-            detach=True,
-            tty=True,
-            network_mode="host",
-            environment={"PYTHONPATH": f"{self.workdir}:$PYTHONPATH"},
-            volumes=volumes,
+            **container_kwargs
         )
         # Print container information after starting
         self.print_container_info()
+
+    def _fix_file_permissions_after_command(self):
+        """Fix file ownership after command execution.
+        
+        Changes ownership of all files in workdir to host user, allowing the host
+        user to modify files created by root in the container.
+        """
+        if not self.container:
+            return
+            
+        if os.name != 'nt':  # Unix-like systems only
+            try:
+                host_uid = os.getuid()
+                host_gid = os.getgid()
+                
+                # Change ownership of workdir to host user (递归修改所有文件)
+                chown_command = f"chown -R {host_uid}:{host_gid} {self.workdir} 2>/dev/null || true"
+                self._logger.debug(f"Fixing file permissions: chown {host_uid}:{host_gid}")
+                
+                # Execute as root (container default user)
+                exec_result = self.container.exec_run(
+                    f'/bin/bash -c "{chown_command}"',
+                    workdir=self.workdir
+                )
+                
+                if exec_result.exit_code == 0:
+                    self._logger.debug(f"File permissions fixed successfully")
+                else:
+                    # 不要警告，因为有些文件可能本来就不需要修改
+                    self._logger.debug(f"Some files may not have changed ownership (this is normal)")
+                    
+            except (AttributeError, OSError) as e:
+                self._logger.debug(f"Could not fix file permissions: {e}")
 
     def is_running(self) -> bool:
         return bool(self.container)
@@ -330,11 +397,14 @@ WORKDIR /app
         self._logger.debug(f"Command output:\n{exec_result_str}")
         return exec_result_str
 
-    def execute_command_with_exit_code(self, command: str):
+    def execute_command_with_exit_code(self, command: str, fix_permissions: bool = True):
         """Execute a command in the running container and return both output and exit code.
 
         Args:
             command: Command to execute in the container.
+            fix_permissions: If True (default), automatically fix file ownership to host user
+                           after command execution. This allows host user to modify files
+                           created by root in the container.
 
         Returns:
             object: An object with stdout, stderr, and returncode attributes.
@@ -346,6 +416,10 @@ WORKDIR /app
         exec_result_str = exec_result.output.decode("utf-8")
 
         self._logger.debug(f"Command output:\n{exec_result_str}")
+        
+        # 执行完命令后，自动修复文件权限
+        if fix_permissions:
+            self._fix_file_permissions_after_command()
 
         return CommandResult(exec_result_str, "", exec_result.exit_code)
 

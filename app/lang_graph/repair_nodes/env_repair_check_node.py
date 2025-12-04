@@ -58,7 +58,7 @@ class EnvRepairCheckNode:
                     test_success = 0
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 pyright 检查
-                self._logger.info("需要运行 pyright 检查")
+                pass
         
         # 判断是否完成
         should_continue = True

@@ -139,3 +139,4 @@ cython_debug/
 
 working_dir/
 projects/
+*nohup.out

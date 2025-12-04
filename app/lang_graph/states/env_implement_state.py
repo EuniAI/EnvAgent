@@ -66,6 +66,7 @@ class EnvImplementState(TypedDict):
     env_error_analysis: str  # 分析test_result或者env_implement_result中的错误原因
     check_state: Dict[str, Any]
     involved_files: Sequence[str]  # Files that have been confirmed as not found during context search, to avoid repeated searches
+    needs_venv_auto_activate: bool  # 是否需要添加虚拟环境自动激活功能
 
 
 
