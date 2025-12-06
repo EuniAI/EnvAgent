@@ -117,14 +117,38 @@ echo "Running type checking..."
 PYRIGHT_ERROR=""
 # Use temporary file to store pyright output, will be deleted after processing
 TEMP_PYRIGHT_OUTPUT=$(mktemp)
+TEMP_PYRIGHT_STDERR=$(mktemp)
+
+# Determine which pyright command to use (prefer direct command, fallback to python -m)
+PYRIGHT_CMD=""
 if command -v pyright &> /dev/null; then
-    $PYTHON_CMD -m pyright "$PROJECT_PATH" --level error --outputjson > "$TEMP_PYRIGHT_OUTPUT" 2>&1
-    PYRIGHT_EXIT_CODE=$?
+    PYRIGHT_CMD="pyright"
+    echo "Using pyright command (npm installation)"
+elif $PYTHON_CMD -m pyright --version &>/dev/null; then
+    PYRIGHT_CMD="$PYTHON_CMD -m pyright"
+    echo "Using python -m pyright (pip installation)"
 else
     PYRIGHT_ERROR="pyright command not available, cannot perform type checking"
     ERROR_MESSAGES+=("$PYRIGHT_ERROR")
     PYRIGHT_EXIT_CODE=1
 fi
+
+# Execute pyright if command is available
+if [ -n "$PYRIGHT_CMD" ]; then
+    $PYRIGHT_CMD "$PROJECT_PATH" --level error --outputjson > "$TEMP_PYRIGHT_OUTPUT" 2>"$TEMP_PYRIGHT_STDERR"
+    PYRIGHT_EXIT_CODE=$?
+    
+    # Check stderr for errors
+    if [ -s "$TEMP_PYRIGHT_STDERR" ]; then
+        STDERR_CONTENT=$(cat "$TEMP_PYRIGHT_STDERR")
+        if echo "$STDERR_CONTENT" | grep -qi "error\|failed\|not found"; then
+            ERROR_MESSAGES+=("pyright execution error: $(echo "$STDERR_CONTENT" | head -3 | tr '\n' ' ')")
+        fi
+    fi
+fi
+
+# Clean up stderr temp file
+rm -f "$TEMP_PYRIGHT_STDERR"
 
 # Check if pyright output exists and is valid
 if [ ! -f "$TEMP_PYRIGHT_OUTPUT" ] || [ ! -s "$TEMP_PYRIGHT_OUTPUT" ]; then
@@ -138,16 +162,27 @@ issue_count=0
 missing_imports_issues='{"issues":[]}'
 
 if [ -f "$TEMP_PYRIGHT_OUTPUT" ] && [ -s "$TEMP_PYRIGHT_OUTPUT" ]; then
-    # Check if JSON file is valid
-    if jq empty "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null; then
-        issue_count=$(jq '[.generalDiagnostics[]? | select(.rule == "reportMissingImports")] | length' \
-            "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null || echo "0")
+    # Check if JSON file is valid by trying to parse it
+    # First, try to extract JSON from output (in case there are non-JSON lines)
+    JSON_CONTENT=$(grep -E '^\s*\{|^\s*\[' "$TEMP_PYRIGHT_OUTPUT" | head -1 || cat "$TEMP_PYRIGHT_OUTPUT")
+    
+    # Try to validate JSON
+    if echo "$JSON_CONTENT" | jq empty 2>/dev/null; then
+        # Valid JSON, extract issues
+        issue_count=$(echo "$JSON_CONTENT" | jq '[.generalDiagnostics[]? | select(.rule == "reportMissingImports")] | length' 2>/dev/null || echo "0")
         
         # Extract missing import error details
-        missing_imports_issues=$(jq '{issues: [.generalDiagnostics[]? | select(.rule == "reportMissingImports")]}' \
-            "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null || echo '{"issues":[]}')
+        missing_imports_issues=$(echo "$JSON_CONTENT" | jq '{issues: [.generalDiagnostics[]? | select(.rule == "reportMissingImports")]}' 2>/dev/null || echo '{"issues":[]}')
     else
-        ERROR_MESSAGES+=("pyright output JSON file is invalid")
+        # Invalid JSON - check if it's an error message
+        OUTPUT_CONTENT=$(cat "$TEMP_PYRIGHT_OUTPUT")
+        if echo "$OUTPUT_CONTENT" | grep -qi "error\|failed\|not found"; then
+            ERROR_MESSAGES+=("pyright output JSON file is invalid: $(echo "$OUTPUT_CONTENT" | head -5 | tr '\n' ' ')")
+        else
+            ERROR_MESSAGES+=("pyright output JSON file is invalid")
+        fi
+        # Create empty result
+        missing_imports_issues='{"issues":[]}'
     fi
 fi
 

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     # Knowledge Graph
     WORKING_DIRECTORY: str
+    PROJECT_DIRECTORY: str
     KNOWLEDGE_GRAPH_ASTNODE_ARGS: ASTNodeConfig
     KNOWLEDGE_GRAPH_CHUNK_SIZE: int
     KNOWLEDGE_GRAPH_CHUNK_OVERLAP: int

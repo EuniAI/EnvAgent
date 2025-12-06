@@ -16,7 +16,7 @@ class EnvRepairPyrightExecuteNode:
         self.container = container
         self._logger, _file_handler = get_thread_logger(__name__)
         # Copy pyright script from host to project directory (host operation, not executed in container)
-        source_script = Path(settings.WORKING_DIRECTORY) / "pyright_env_quality_check.sh"
+        source_script = Path(settings.PROJECT_DIRECTORY) / "pyright_env_quality_check.sh"
         target_script = self.container.project_path / "pyright_env_quality_check.sh"
         try:
             shutil.copy(source_script, target_script)

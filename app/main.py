@@ -3,9 +3,9 @@ import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import PosixPath
+from pathlib import Path, PosixPath
 from threading import Lock
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import click
 from tqdm import tqdm
@@ -69,16 +69,16 @@ def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
 def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
     """
     解析 all_projects.txt 文件
-    文件格式：项目名 仓库URL 编程语言 镜像名:标签
+    文件格式：项目名 标签 [项目路径] [dockerfile模板路径]
     Args:
         file_path: all_projects.txt 文件的路径
     Returns:
         包含项目信息的字典列表，每个字典包含：
         - name: 项目名称
         - repo_url: 仓库URL
-        - language: 编程语言
-        - image: 镜像名称
-        - tag: 镜像标签
+        - tag: 项目标签
+        - project_path: 项目路径（可选）
+        - dockerfile_template: Dockerfile模板路径（可选）
     """
     projects = []
 
@@ -106,8 +106,12 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 else:
                     project_info["project_path"] = None
 
+                if len(parts) > 3:
+                    dockerfile_template = parts[3]
+                    project_info["dockerfile_template"] = dockerfile_template
+                else:
+                    project_info["dockerfile_template"] = None
 
-                
                 projects.append(project_info)
 
     except FileNotFoundError:
@@ -156,6 +160,7 @@ def reproduce_test(
     github_url: str,
     github_token: str,
     project_tag: str,
+    dockerfile_template_path: Optional[str] = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
     # Get or create repository (repository-based logic)
     logger.info("Getting or creating repository...")
@@ -176,7 +181,15 @@ def reproduce_test(
     )
     git_repo = repository_service.get_repository(repo_path)
     # Get git_repo pointing to container.project_path (temporary copy)
-    container = GeneralContainer(repo_path)
+    # Convert dockerfile_template_path to Path if provided
+    dockerfile_path = None
+    if dockerfile_template_path:
+        dockerfile_path = Path(dockerfile_template_path)
+        if not dockerfile_path.is_absolute():
+            # If relative path, resolve relative to the main.py file's directory
+            main_dir = Path(__file__).parent.parent
+            dockerfile_path = (main_dir / dockerfile_template_path).resolve()
+    container = GeneralContainer(repo_path, dockerfile_template_path=dockerfile_path)
     # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
@@ -331,11 +344,20 @@ def reproduce_test(
     default=4,
     type=int,
 )
+@click.option(
+    "--dockerfile_template",
+    "-t",
+    help="Path to Dockerfile template file (e.g., projects/dockerfile/python-pyright.dockerfile). "
+         "If not provided, uses the default Dockerfile content.",
+    default=None,
+    type=str,
+)
 def main(
     dataset_file_path: str,
     github_token: str,
     file: str,
     max_workers: int,
+    dockerfile_template: Optional[str],
 ):
     # 解析 all_projects.txt 文件、
     projects = parse_all_projects_file(dataset_file_path)
@@ -354,9 +376,13 @@ def main(
 
             github_url = project["repo_url"]
 
+            # Get dockerfile template path from project info or use global template
+            # Prefer project-specific template, fall back to global template
+            project_dockerfile = project.get("dockerfile_template") or dockerfile_template
+
             # Reproduce the bug
             success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
-                github_url, github_token, project['tag']
+                github_url, github_token, project['tag'], dockerfile_template_path=project_dockerfile
             )
 
             # Create project result with all states

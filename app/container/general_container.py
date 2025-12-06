@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from app.container.base_container import BaseContainer
 
@@ -27,17 +28,25 @@ class GeneralContainer(BaseContainer):
     custom build and test operations.
     """
 
-    def __init__(self, project_path: Path):
+    def __init__(self, project_path: Path, dockerfile_template_path: Optional[Path] = None):
         """Initialize the general container with a unique tag name.
 
         Args:
             project_path (Path): Path to the project directory to be containerized.
+            dockerfile_template_path (Optional[Path]): Optional path to a Dockerfile template file.
+                If provided, the Dockerfile content will be read from this file instead of using
+                the default hardcoded content. If None, uses the default Dockerfile content.
         """
         super().__init__(project_path)
         self.tag_name = f"prometheus_envagent_container_{uuid.uuid4().hex[:10]}"
+        self.dockerfile_template_path = dockerfile_template_path
 
     def get_dockerfile_content(self) -> str:
         """Get the Dockerfile content for the general-purpose container.
+
+        If a dockerfile_template_path was provided during initialization, reads the
+        Dockerfile content from that file. Otherwise, returns the default hardcoded
+        Dockerfile content.
 
         The Dockerfile sets up an Ubuntu-based environment with a comprehensive
         set of development tools and languages installed. It includes Python,
@@ -46,76 +55,23 @@ class GeneralContainer(BaseContainer):
 
         Returns:
             str: Content of the Dockerfile as a string.
+
+        Raises:
+            FileNotFoundError: If dockerfile_template_path was provided but the file doesn't exist.
+            IOError: If there's an error reading the Dockerfile template file.
         """
-        DOCKERFILE_CONTENT = """\
-FROM ubuntu:24.04
+        # If a template path was provided, read from file
+        if self.dockerfile_template_path:
+            template_path = Path(self.dockerfile_template_path)
+            if not template_path.exists():
+                raise FileNotFoundError(
+                    f"Dockerfile template not found: {self.dockerfile_template_path}"
+                )
+            self._logger.info(f"Reading Dockerfile from template: {self.dockerfile_template_path}")
+            return template_path.read_text(encoding="utf-8")
+        else:
+            raise Exception("No Dockerfile template path provided")
 
-# Avoid timezone prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=UTC
-
-# Set working directory
-WORKDIR /app
-
-# Install essential build and development tools
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    git \
-    curl \
-    wget \
-    jq \
-    python3 \
-    python3-pip \
-    python3-dev \
-    python3-venv \
-    nodejs \
-    npm \
-    default-jdk \
-    gcc \
-    g++ \
-    gdb \
-    postgresql-client \
-    mysql-client \
-    sqlite3 \
-    iputils-ping \
-    vim \
-    nano \
-    zip \
-    unzip \
-    ca-certificates \
-    gnupg \
-    lsb-release
-
-RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-RUN apt-get update && apt-get install -y docker-ce-cli
-
-RUN apt-get clean
-RUN rm -rf /var/lib/apt/lists/*
-RUN ln -s /usr/bin/python3 /usr/bin/python
-
-# Install pyright for type checking
-RUN python3 -m pip install --quiet --no-cache-dir pyright
-
-# Copy project files
-COPY . /app/
-
-# ARG HOST_UID
-# ARG HOST_GID
-# ARG HOST_USER
-
-# RUN groupadd -g ${HOST_GID} ${HOST_USER} && \
-#     useradd -m -u ${HOST_UID} -g ${HOST_GID} ${HOST_USER}
-
-# USER ${HOST_USER}
-
-"""
-        return DOCKERFILE_CONTENT
 
     def run_build(self):
         """Not implemented for GeneralContainer.
