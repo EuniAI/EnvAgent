@@ -1,39 +1,43 @@
 #!/bin/bash
 #
-# 环境安装质量监测脚本
-# 基于 pyright 静态分析统计缺失导入错误数量
+# Environment Installation Quality Check Script
+# Count missing import errors based on pyright static analysis
 #
 
-set -e
+# Do not use set -e, to capture errors and write to result file
+set +e
 
-# 配置参数
-PROJECT_PATH="${1:-/data/project}"  # 项目路径，默认为 /data/project
-OUTPUT_DIR="${2:-build_output}"    # 输出目录，默认为 build_output
+# Configuration parameters
+PROJECT_PATH="${1:-/data/project}"  # Project path, default is /data/project
+OUTPUT_DIR="${2:-build_output}"    # Output directory, default is build_output
 
-# 激活虚拟环境（如果存在）
-# 尝试常见的虚拟环境路径
+# Error message collection
+ERROR_MESSAGES=()
+
+# # Activate virtual environment (if exists)
+# # Try common virtual environment paths
 VENV_PATHS=("/opt/venv" "$PROJECT_PATH/venv" "$(pwd)/venv" "$HOME/venv")
 VENV_ACTIVATED=false
 
-for venv_path in "${VENV_PATHS[@]}"; do
-    if [ -f "$venv_path/bin/activate" ]; then
-        echo "激活虚拟环境: $venv_path"
-        # shellcheck source=/dev/null
-        source "$venv_path/bin/activate"
-        VENV_ACTIVATED=true
-        break
-    fi
-done
+# for venv_path in "${VENV_PATHS[@]}"; do
+#     if [ -f "$venv_path/bin/activate" ]; then
+#         echo "Activating virtual environment: $venv_path"
+#         # shellcheck source=/dev/null
+#         source "$venv_path/bin/activate"
+#         VENV_ACTIVATED=true
+#         break
+#     fi
+# done
 
-# 如果虚拟环境未激活，尝试从 ~/.bashrc 中读取（如果存在）
+# If virtual environment is not activated, try to read from ~/.bashrc (if exists)
 if [ "$VENV_ACTIVATED" = false ] && [ -f "$HOME/.bashrc" ]; then
-    # 从 ~/.bashrc 中提取虚拟环境路径
+    # Extract virtual environment path from ~/.bashrc
     venv_line=$(grep -E "source.*bin/activate|\.\s+.*bin/activate" "$HOME/.bashrc" | head -1)
     if [ -n "$venv_line" ]; then
-        # 提取路径（例如：从 "source /opt/venv/bin/activate" 提取 "/opt/venv"）
+        # Extract path (e.g., extract "/opt/venv" from "source /opt/venv/bin/activate")
         venv_path=$(echo "$venv_line" | sed -E 's/.*(source|\.)\s+([^[:space:]]+)\/bin\/activate.*/\2/')
         if [ -f "$venv_path/bin/activate" ]; then
-            echo "从 ~/.bashrc 激活虚拟环境: $venv_path"
+            echo "Activating virtual environment from ~/.bashrc: $venv_path"
             # shellcheck source=/dev/null
             source "$venv_path/bin/activate"
             VENV_ACTIVATED=true
@@ -41,88 +45,148 @@ if [ "$VENV_ACTIVATED" = false ] && [ -f "$HOME/.bashrc" ]; then
     fi
 fi
 
-# 验证 Python 是否可用
+# Verify if Python is available
 if ! command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
-    echo "警告: 未找到 python 或 python3 命令"
+    echo "Warning: python or python3 command not found"
     if [ "$VENV_ACTIVATED" = false ]; then
-        echo "提示: 虚拟环境可能未激活，尝试手动激活虚拟环境"
+        echo "Hint: Virtual environment may not be activated, try to activate it manually"
     fi
 fi
 
-# 创建输出目录
+# Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# 检查 jq 是否安装
+# Set log file path
+LOG_FILE="$OUTPUT_DIR/execution.log"
+
+# Output all output (stdout and stderr) to both terminal and log file
+# Use tee to output simultaneously, note: content explicitly redirected to file (e.g., > file.json) is not affected
+exec > >(tee "$LOG_FILE") 2>&1
+
+# Check if jq is installed
 if ! command -v jq &> /dev/null; then
-    echo "错误: jq 未安装，请先安装 jq"
+    echo "Error: jq is not installed, please install jq first"
     exit 1
 fi
 
-# 安装 pyright（如果未安装）
+# Install pyright (if not installed)
 if ! command -v pyright &> /dev/null; then
-    echo "正在安装 pyright..."
-    # 优先使用 python3，如果不存在则使用 python
+    echo "Installing pyright..."
+    # Prefer python3, use python if python3 doesn't exist
+    INSTALL_ERROR=""
     if command -v python3 &> /dev/null; then
-        python3 -m pip install --quiet pyright
+        INSTALL_OUTPUT=$(python3 -m pip install --quiet pyright 2>&1)
+        INSTALL_EXIT_CODE=$?
+        if [ $INSTALL_EXIT_CODE -ne 0 ]; then
+            INSTALL_ERROR="$INSTALL_OUTPUT"
+            ERROR_MESSAGES+=("pyright installation failed: $INSTALL_ERROR")
+        fi
     elif command -v python &> /dev/null; then
-        python -m pip install --quiet pyright
+        INSTALL_OUTPUT=$(python -m pip install --quiet pyright 2>&1)
+        INSTALL_EXIT_CODE=$?
+        if [ $INSTALL_EXIT_CODE -ne 0 ]; then
+            INSTALL_ERROR="$INSTALL_OUTPUT"
+            ERROR_MESSAGES+=("pyright installation failed: $INSTALL_ERROR")
+        fi
     else
-        echo "错误: 未找到 python 或 python3 命令"
-        exit 1
+        ERROR_MESSAGES+=("Error: python or python3 command not found")
+    fi
+    
+    # If installation failed, still try to continue (pyright may have been installed by other means)
+    if [ -n "$INSTALL_ERROR" ]; then
+        echo "Warning: pyright installation failed, but continuing to try using installed version"
+        echo "$INSTALL_ERROR"
     fi
 fi
 
-# 显示使用的 Python 版本
-# 优先使用 python3，如果不存在则使用 python
+# Display Python version being used
+# Prefer python3, use python if python3 doesn't exist
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
 else
-    echo "错误: 未找到 python 或 python3 命令"
+    echo "Error: python or python3 command not found"
     exit 1
 fi
-echo "使用 Python: $($PYTHON_CMD --version) 位于 $(which $PYTHON_CMD)"
-echo "检查项目路径: $PROJECT_PATH"
+echo "Using Python: $($PYTHON_CMD --version) at $(which $PYTHON_CMD)"
+echo "Checking project path: $PROJECT_PATH"
 
-# 运行 pyright 类型检查
-echo "正在运行类型检查..."
-$PYTHON_CMD -m pyright "$PROJECT_PATH" --level error --outputjson > "$OUTPUT_DIR/pyright_output.json" || true
-
-# 检查 pyright 输出是否存在且有效
-if [ ! -f "$OUTPUT_DIR/pyright_output.json" ]; then
-    echo "错误: 无法获取有效的 pyright 输出"
-    exit 1
+# Run pyright type checking
+echo "Running type checking..."
+PYRIGHT_ERROR=""
+# Use temporary file to store pyright output, will be deleted after processing
+TEMP_PYRIGHT_OUTPUT=$(mktemp)
+if command -v pyright &> /dev/null; then
+    $PYTHON_CMD -m pyright "$PROJECT_PATH" --level error --outputjson > "$TEMP_PYRIGHT_OUTPUT" 2>&1
+    PYRIGHT_EXIT_CODE=$?
+else
+    PYRIGHT_ERROR="pyright command not available, cannot perform type checking"
+    ERROR_MESSAGES+=("$PYRIGHT_ERROR")
+    PYRIGHT_EXIT_CODE=1
 fi
 
-# 统计缺失导入错误数量（reportMissingImports）
-issue_count=$(jq '[.generalDiagnostics[] | select(.rule == "reportMissingImports")] | length' \
-    "$OUTPUT_DIR/pyright_output.json")
+# Check if pyright output exists and is valid
+if [ ! -f "$TEMP_PYRIGHT_OUTPUT" ] || [ ! -s "$TEMP_PYRIGHT_OUTPUT" ]; then
+    ERROR_MESSAGES+=("Error: Unable to get valid pyright output")
+    # Create an empty pyright output file
+    echo '{"generalDiagnostics":[]}' > "$TEMP_PYRIGHT_OUTPUT"
+fi
 
-# 提取缺失导入错误详情
-missing_imports_issues=$(jq '{issues: [.generalDiagnostics[] | select(.rule == "reportMissingImports")]}' \
-    "$OUTPUT_DIR/pyright_output.json")
+# Count missing import errors (reportMissingImports)
+issue_count=0
+missing_imports_issues='{"issues":[]}'
 
-# 保存缺失导入错误详情
+if [ -f "$TEMP_PYRIGHT_OUTPUT" ] && [ -s "$TEMP_PYRIGHT_OUTPUT" ]; then
+    # Check if JSON file is valid
+    if jq empty "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null; then
+        issue_count=$(jq '[.generalDiagnostics[]? | select(.rule == "reportMissingImports")] | length' \
+            "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null || echo "0")
+        
+        # Extract missing import error details
+        missing_imports_issues=$(jq '{issues: [.generalDiagnostics[]? | select(.rule == "reportMissingImports")]}' \
+            "$TEMP_PYRIGHT_OUTPUT" 2>/dev/null || echo '{"issues":[]}')
+    else
+        ERROR_MESSAGES+=("pyright output JSON file is invalid")
+    fi
+fi
+
+# If there are error messages, add them to the results
+if [ ${#ERROR_MESSAGES[@]} -gt 0 ]; then
+    # Add error messages to missing import errors
+    ERROR_ISSUES_JSON="[]"
+    for error_msg in "${ERROR_MESSAGES[@]}"; do
+        ERROR_ISSUE=$(jq -n \
+            --arg file "pyright_installation" \
+            --arg message "$error_msg" \
+            '{file: $file, message: $message, rule: "installation_error"}')
+        ERROR_ISSUES_JSON=$(echo "$ERROR_ISSUES_JSON" | jq --argjson issue "$ERROR_ISSUE" '. += [$issue]')
+    done
+    
+    # Merge error messages into missing import errors
+    if [ -n "$ERROR_ISSUES_JSON" ] && [ "$ERROR_ISSUES_JSON" != "[]" ]; then
+        missing_imports_issues=$(echo "$missing_imports_issues" | jq --argjson errors "$ERROR_ISSUES_JSON" '.issues += $errors')
+        issue_count=$((issue_count + ${#ERROR_MESSAGES[@]}))
+    fi
+fi
+
+# Save missing import error details
 echo "$missing_imports_issues" > "$OUTPUT_DIR/missing_imports_issues.json"
 
-# 创建结果 JSON（使用 --slurpfile 替代已弃用的 --argfile）
-results_json=$(jq -n \
-    --arg issues "$issue_count" \
-    --slurpfile pyright "$OUTPUT_DIR/pyright_output.json" \
-    '{issues_count: ($issues|tonumber), pyright: $pyright[0]}')
+# Clean up temporary files
+if [ -f "$TEMP_PYRIGHT_OUTPUT" ]; then
+    rm -f "$TEMP_PYRIGHT_OUTPUT"
+fi
 
-# 保存结果
-echo "$results_json" > "$OUTPUT_DIR/results.json"
-
-# 输出结果摘要
+# Output result summary
 echo "========================================="
-echo "环境安装质量监测结果"
+echo "Environment Installation Quality Check Results"
 echo "========================================="
-echo "缺失导入错误数量: $issue_count"
-echo "结果已保存到: $OUTPUT_DIR/results.json"
+echo "Missing import errors count: $issue_count"
+echo "Missing import errors details saved to: $OUTPUT_DIR/missing_imports_issues.json"
+echo "Execution log saved to: $LOG_FILE"
 echo "========================================="
 
-# 返回结果（issues_count 越小，质量越好）
+# Return result (smaller issues_count means better quality)
 exit 0
 

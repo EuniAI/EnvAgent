@@ -1,4 +1,4 @@
-"""节点：执行 pyright 环境质量检查（基于 pyright）"""
+"""Node: Execute pyright environment quality check (based on pyright)"""
 
 import json
 import shutil
@@ -10,83 +10,121 @@ from app.utils.logger_manager import get_thread_logger
 from app.configuration.config import settings
 
 class EnvRepairPyrightExecuteNode:
-    """执行环境安装质量检查（使用 pyright）并返回结果"""
+    """Execute environment installation quality check (using pyright) and return results"""
 
     def __init__(self, container: BaseContainer):
         self.container = container
         self._logger, _file_handler = get_thread_logger(__name__)
-        # 将pyright 脚本从主机复制到项目目录（主机操作，不在容器内执行）
+        # Copy pyright script from host to project directory (host operation, not executed in container)
         source_script = Path(settings.WORKING_DIRECTORY) / "pyright_env_quality_check.sh"
         target_script = self.container.project_path / "pyright_env_quality_check.sh"
         try:
             shutil.copy(source_script, target_script)
-            self._logger.info(f"复制 pyright 脚本成功: {source_script} -> {target_script}")
+            self._logger.info(f"Successfully copied pyright script: {source_script} -> {target_script}")
         except Exception as e:
-            error_msg = f"复制 pyright 脚本失败: {str(e)}"
+            error_msg = f"Failed to copy pyright script: {str(e)}"
             self._logger.error(error_msg)
             raise Exception(error_msg)
 
     def __call__(self, state: Dict):
-        """执行 pyright 环境质量检查"""
-        # 使用容器内的工作目录作为项目路径
+        """Execute pyright environment quality check"""
+        # Use the working directory in the container as the project path
         project_path = self.container.workdir
         output_dir = "/app/build_output"
         script_path = "/app/pyright_env_quality_check.sh"
 
-        self._logger.info("开始执行环境安装质量检查（pyright 模式）")
+        self._logger.info("Starting environment installation quality check (pyright mode)")
 
 
-        # 给脚本添加执行权限
+        # Add execute permission to the script
         chmod_cmd = f"chmod +x {script_path}"
         chmod_result = self.container.execute_command_with_exit_code(chmod_cmd)
         if chmod_result.returncode != 0:
-            self._logger.warning(f"添加执行权限失败: {chmod_result.stderr}")
+            self._logger.warning(f"Failed to add execute permission: {chmod_result.stderr}")
 
-        # 运行脚本
-        # 使用 bash -l 启动登录 shell，确保加载 ~/.bashrc（包含虚拟环境激活）
-        self._logger.info(f"执行环境质量检查脚本: {script_path}")
+        # Clean up existing output files before running the script
+        self._logger.info("Cleaning up existing output files")
+        cleanup_cmd = f"rm -f {output_dir}/missing_imports_issues.json {output_dir}/execution.log"
+        cleanup_result = self.container.execute_command_with_exit_code(cleanup_cmd)
+        if cleanup_result.returncode != 0:
+            self._logger.warning(f"Failed to clean up output files: {cleanup_result.stderr}")
+
+        # Run the script
+        # Use bash -l to start a login shell, ensuring ~/.bashrc is loaded (including virtual environment activation)
+        self._logger.info(f"Executing environment quality check script: {script_path}")
         run_script_cmd = f"bash -l -c '{script_path} {project_path} {output_dir}'"
         script_result = self.container.execute_command_with_exit_code(run_script_cmd)
 
+        # Record script output for debugging and error capture
+        self._logger.debug(f"Script execution return code: {script_result.returncode}")
+        self._logger.debug(f"Script stdout: {script_result.stdout}")
+        if script_result.stderr:
+            self._logger.debug(f"Script stderr: {script_result.stderr}")
 
-        # 产出3个文件 missing_imports_issues.json  pyright_output.json  results.json
-        # 读取结果文件
-        read_results_cmd = f"cat {output_dir}/results.json 2>/dev/null || echo '{{}}'"
-        results_output = self.container.execute_command_with_exit_code(read_results_cmd)
-        # 读取缺失导入错误详情文件
+        # Script generates 2 files: missing_imports_issues.json, execution.log
+        # Read missing import issues details file
         read_missing_imports_issues_cmd = f"cat {output_dir}/missing_imports_issues.json 2>/dev/null || echo '{{}}'"
         missing_imports_issues_output = self.container.execute_command_with_exit_code(read_missing_imports_issues_cmd)
+        
+        # Read execution log for error detection (optional, used as fallback)
+        read_execution_log_cmd = f"cat {output_dir}/execution.log 2>/dev/null || echo ''"
+        execution_log_output = self.container.execute_command_with_exit_code(read_execution_log_cmd)
 
-        # 解析结果
+        # Parse results
         try:
-            if results_output.returncode == 0 and results_output.stdout.strip():
-                results_data = json.loads(results_output.stdout)
-                issues_count = results_data.get("issues_count", -1)
-                pyright_data = results_data.get("pyright", {})
-            else:
-                # 如果无法读取结果文件，尝试从脚本输出中提取信息
-                self._logger.error("无法读取结果文件")
-                raise Exception("无法读取结果文件")
-            
+            # Initialize default values
+            issues_count = 0
+            missing_imports_issues = []
+
+            # Parse missing import issues details file (this already contains installation errors)
             if missing_imports_issues_output.returncode == 0 and missing_imports_issues_output.stdout.strip():
-                missing_imports_issues_data = json.loads(missing_imports_issues_output.stdout)
-                missing_imports_issues = missing_imports_issues_data.get("issues", [])
-            else:
-                self._logger.error("无法读取缺失导入错误详情文件")
-                raise Exception("无法读取缺失导入错误详情文件")
+                try:
+                    missing_imports_issues_data = json.loads(missing_imports_issues_output.stdout)
+                    missing_imports_issues = missing_imports_issues_data.get("issues", [])
+                    # Count issues from missing_imports_issues.json
+                    issues_count = len(missing_imports_issues)
+                except json.JSONDecodeError as e:
+                    self._logger.warning(f"Failed to parse missing_imports_issues.json: {e}")
+            
+            # If missing_imports_issues is empty, try to extract error information from execution log or script output
+            if issues_count == 0 and len(missing_imports_issues) == 0:
+                # Combine script output and execution log for error detection
+                combined_output = script_result.stdout + "\n" + script_result.stderr
+                if execution_log_output.returncode == 0 and execution_log_output.stdout.strip():
+                    combined_output += "\n" + execution_log_output.stdout
+                
+                # Check for common error patterns
+                if "externally-managed-environment" in combined_output:
+                    missing_imports_issues.append({
+                        "file": "pyright_installation",
+                        "message": "pyright installation failed: externally-managed-environment error",
+                        "rule": "installation_error"
+                    })
+                    issues_count = 1
+                elif "error:" in combined_output.lower() or "Error:" in combined_output:
+                    # Extract error information (take first meaningful error block)
+                    error_lines = [line for line in combined_output.split("\n") 
+                                 if "error" in line.lower() or "Error" in line]
+                    if error_lines:
+                        error_msg = "Script execution error: " + "; ".join(error_lines[:3])
+                        missing_imports_issues.append({
+                            "file": "pyright_installation",
+                            "message": error_msg,
+                            "rule": "installation_error"
+                        })
+                        issues_count = 1
 
-            self._logger.info(f"检测到 {issues_count} 个缺失导入错误")
+            self._logger.info(f"Detected {issues_count} issues (including missing import errors and installation errors)")
 
-            # 构建结果字典：更新test_result结果，不追加
+            # Build result dictionary: update test_result, do not append
             test_result_dict = {
                 "command": "pyright_check",
-                "returncode": 0 if issues_count == 0 else 1,  # 0 个错误表示成功 
+                "returncode": 0 if issues_count == 0 else 1,  # 0 errors means success
                 "env_issues": missing_imports_issues,
                 "issues_count": issues_count,
-                "pyright_data": pyright_data,  # 包含完整的 pyright 输出
             }
 
-            # 更新历史记录
+            # Update history record
             test_command_result_history = state.get("test_command_result_history", []) + [
                 {
                     "result": test_result_dict,
@@ -97,7 +135,7 @@ class EnvRepairPyrightExecuteNode:
                 "test_command_result_history": test_command_result_history,
             }
         except Exception as e:
-            self._logger.error(f"执行 pyright 环境质量检查失败: {e}")
+            self._logger.error(f"Failed to execute pyright environment quality check: {e}")
             return {
                 "test_result": {},
                 "test_command_result_history": {},

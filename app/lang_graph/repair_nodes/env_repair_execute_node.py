@@ -27,8 +27,9 @@ class EnvRepairExecuteNode:
 
         self._logger.info(f"执行环境命令: {current_command}")
 
-        # 执行命令
-        env_setup_output = self.container.execute_command_with_exit_code(current_command)
+        # 执行命令，对于环境设置脚本（可能包含 npm install/build 等长时间操作），使用更长的超时时间（30分钟）
+        # 默认超时是120秒，但对于 npm install/build 等操作可能需要更长时间
+        env_setup_output = self.container.execute_command_with_exit_code(current_command, timeout=1800)
 
         self._logger.info(f"命令执行完成，退出码: {env_setup_output.returncode}")
 

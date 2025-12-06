@@ -99,6 +99,9 @@ RUN apt-get clean
 RUN rm -rf /var/lib/apt/lists/*
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
+# Install pyright for type checking
+RUN python3 -m pip install --quiet --no-cache-dir pyright
+
 # Copy project files
 COPY . /app/
 

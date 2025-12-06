@@ -397,7 +397,7 @@ WORKDIR /app
         self._logger.debug(f"Command output:\n{exec_result_str}")
         return exec_result_str
 
-    def execute_command_with_exit_code(self, command: str, fix_permissions: bool = True):
+    def execute_command_with_exit_code(self, command: str, fix_permissions: bool = True, timeout: Optional[int] = None):
         """Execute a command in the running container and return both output and exit code.
 
         Args:
@@ -405,15 +405,27 @@ WORKDIR /app
             fix_permissions: If True (default), automatically fix file ownership to host user
                            after command execution. This allows host user to modify files
                            created by root in the container.
+            timeout: Optional timeout in seconds. If None, uses self.timeout (default 120s).
+                    For long-running commands like npm install/build, set a longer timeout.
 
         Returns:
             object: An object with stdout, stderr, and returncode attributes.
         """
-        # 直接使用bash -c执行，不使用timeout
-        wrapped_command = f'/bin/bash -l -c "{command}"'
+        # Use timeout if specified, otherwise use default timeout
+        timeout_value = timeout if timeout is not None else self.timeout
+        timeout_msg = f"""
+        *******************************************************************************
+        {command} timeout after {timeout_value} seconds
+        *******************************************************************************
+        """
+        timeout_command = f"timeout -k 5 {timeout_value}s {command}"
+        wrapped_command = f'/bin/bash -l -c "{timeout_command}"'
         self._logger.debug(f"Running command in container: {wrapped_command}")
         exec_result = self.container.exec_run(wrapped_command, workdir=self.workdir)
         exec_result_str = exec_result.output.decode("utf-8")
+
+        if exec_result.exit_code in (124, 137):
+            exec_result_str += timeout_msg
 
         self._logger.debug(f"Command output:\n{exec_result_str}")
         
