@@ -1,6 +1,7 @@
 """Node: Execute pyright environment quality check (based on pyright)"""
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Dict
@@ -42,18 +43,11 @@ class EnvRepairPyrightExecuteNode:
         if chmod_result.returncode != 0:
             self._logger.warning(f"Failed to add execute permission: {chmod_result.stderr}")
 
-        # Clean up existing output files before running the script
-        self._logger.info("Cleaning up existing output files")
-        cleanup_cmd = f"rm -f {output_dir}/missing_imports_issues.json {output_dir}/execution.log"
-        cleanup_result = self.container.execute_command_with_exit_code(cleanup_cmd)
-        if cleanup_result.returncode != 0:
-            self._logger.warning(f"Failed to clean up output files: {cleanup_result.stderr}")
-
         # Run the script
         # Use bash -l to start a login shell, ensuring ~/.bashrc is loaded (including virtual environment activation)
         self._logger.info(f"Executing environment quality check script: {script_path}")
         run_script_cmd = f"bash -l -c '{script_path} {project_path} {output_dir}'"
-        script_result = self.container.execute_command_with_exit_code(run_script_cmd)
+        script_result = self.container.execute_command_with_exit_code(run_script_cmd, print_output=False)
 
         # Record script output for debugging and error capture
         self._logger.debug(f"Script execution return code: {script_result.returncode}")
@@ -61,65 +55,69 @@ class EnvRepairPyrightExecuteNode:
         if script_result.stderr:
             self._logger.debug(f"Script stderr: {script_result.stderr}")
 
-        # Script generates 2 files: missing_imports_issues.json, execution.log
-        # Read missing import issues details file
-        read_missing_imports_issues_cmd = f"cat {output_dir}/missing_imports_issues.json 2>/dev/null || echo '{{}}'"
-        missing_imports_issues_output = self.container.execute_command_with_exit_code(read_missing_imports_issues_cmd)
-        
-        # Read execution log for error detection (optional, used as fallback)
-        read_execution_log_cmd = f"cat {output_dir}/execution.log 2>/dev/null || echo ''"
-        execution_log_output = self.container.execute_command_with_exit_code(read_execution_log_cmd)
-
-        # Parse results
+        # Parse results from script output
         try:
             # Initialize default values
             issues_count = 0
             missing_imports_issues = []
-
-            # Parse missing import issues details file (this already contains installation errors)
-            if missing_imports_issues_output.returncode == 0 and missing_imports_issues_output.stdout.strip():
-                try:
-                    missing_imports_issues_data = json.loads(missing_imports_issues_output.stdout)
-                    missing_imports_issues = missing_imports_issues_data.get("issues", [])
-                    # Count issues from missing_imports_issues.json
-                    issues_count = len(missing_imports_issues)
-                except json.JSONDecodeError as e:
-                    self._logger.warning(f"Failed to parse missing_imports_issues.json: {e}")
+            error_messages = []
             
-            # If missing_imports_issues is empty, try to extract error information from execution log or script output
-            if issues_count == 0 and len(missing_imports_issues) == 0:
-                # Combine script output and execution log for error detection
-                combined_output = script_result.stdout + "\n" + script_result.stderr
-                if execution_log_output.returncode == 0 and execution_log_output.stdout.strip():
-                    combined_output += "\n" + execution_log_output.stdout
-                
-                # Check for common error patterns
-                if "externally-managed-environment" in combined_output:
-                    missing_imports_issues.append({
+            # 如果出现Running type checking...，则认为pyright安装成功
+            if "Running type checking..." in script_result.stdout:
+                # 提取 pyright JSON 输出（在 "Running type checking..." 之后的内容）
+                try:
+                    pyright_json_str = script_result.stdout.split("Running type checking...\n")[1].strip()
+                    try:
+                        pyright_result = json.loads(pyright_json_str)
+                        # 统计缺失导入错误数量（reportMissingImports）
+                        # 从 generalDiagnostics 中筛选出 rule == "reportMissingImports" 的项
+                        general_diagnostics = pyright_result.get("generalDiagnostics", [])
+                        missing_imports_issues = [
+                            diag for diag in general_diagnostics
+                            if diag.get("rule") == "reportMissingImports"
+                        ]
+                        issues_count = len(missing_imports_issues)
+                        pyright_returecode = 0 if issues_count == 0 else -1
+
+                    except json.JSONDecodeError as e:
+                        self._logger.warning(f"Failed to parse pyright JSON output: {e}")
+                        error_messages.append("pyright 输出 JSON 文件无效")
+                        pyright_returecode = -1
+                except Exception as e:
+                    self._logger.warning(f"Failed to extract pyright output: {e}")
+                    error_messages.append(f"提取 pyright 输出失败: {str(e)}")
+                    pyright_returecode = -1
+            else:
+                # 检查是否有安装错误
+                if "Error: pyright is not available as a Python module" in script_result.stdout:
+                    error_messages.append("pyright 不可用，无法执行类型检查")
+                elif "Error: Failed to install pyright" in script_result.stdout:
+                    error_messages.append("pyright 安装失败")
+                elif "Error: python or python3 command not found" in script_result.stdout:
+                    error_messages.append("未找到 Python 命令")
+                else:
+                    error_messages.append("pyright 执行失败或未生成有效输出")
+            
+            # 如果有错误信息，将其添加到结果中
+            if error_messages:
+                pyright_returecode = -1
+                for error_msg in error_messages:
+                    error_issue = {
                         "file": "pyright_installation",
-                        "message": "pyright installation failed: externally-managed-environment error",
+                        "message": error_msg,
                         "rule": "installation_error"
-                    })
-                    issues_count = 1
-                elif "error:" in combined_output.lower() or "Error:" in combined_output:
-                    # Extract error information (take first meaningful error block)
-                    error_lines = [line for line in combined_output.split("\n") 
-                                 if "error" in line.lower() or "Error" in line]
-                    if error_lines:
-                        error_msg = "Script execution error: " + "; ".join(error_lines[:3])
-                        missing_imports_issues.append({
-                            "file": "pyright_installation",
-                            "message": error_msg,
-                            "rule": "installation_error"
-                        })
-                        issues_count = 1
+                    }
+                    missing_imports_issues.append(error_issue)
+            
+            # 更新问题数量（确保包含所有问题：缺失导入错误和安装错误）
+            issues_count = len(missing_imports_issues)
 
             self._logger.info(f"Detected {issues_count} issues (including missing import errors and installation errors)")
 
             # Build result dictionary: update test_result, do not append
             test_result_dict = {
                 "command": "pyright_check",
-                "returncode": 0 if issues_count == 0 else 1,  # 0 errors means success
+                "returncode": pyright_returecode,  # 0 errors means success
                 "env_issues": missing_imports_issues,
                 "issues_count": issues_count,
             }

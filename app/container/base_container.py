@@ -397,7 +397,7 @@ WORKDIR /app
         self._logger.debug(f"Command output:\n{exec_result_str}")
         return exec_result_str
 
-    def execute_command_with_exit_code(self, command: str, fix_permissions: bool = True, timeout: Optional[int] = None):
+    def execute_command_with_exit_code(self, command: str, fix_permissions: bool = True, timeout: Optional[int] = None, print_output: bool = True):
         """Execute a command in the running container and return both output and exit code.
 
         Args:
@@ -427,7 +427,8 @@ WORKDIR /app
         if exec_result.exit_code in (124, 137):
             exec_result_str += timeout_msg
 
-        self._logger.debug(f"Command output:\n{exec_result_str}")
+        if print_output:
+            self._logger.debug(f"Command output:\n{exec_result_str}")
         
         # 执行完命令后，自动修复文件权限
         if fix_permissions:
