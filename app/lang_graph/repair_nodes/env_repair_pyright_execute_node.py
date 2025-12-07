@@ -51,16 +51,12 @@ class EnvRepairPyrightExecuteNode:
 
         # Record script output for debugging and error capture
         self._logger.debug(f"Script execution return code: {script_result.returncode}")
-        self._logger.debug(f"Script stdout: {script_result.stdout}")
-        if script_result.stderr:
-            self._logger.debug(f"Script stderr: {script_result.stderr}")
 
         # Parse results from script output
         try:
             # Initialize default values
             issues_count = 0
             missing_imports_issues = []
-            error_messages = []
             
             # 如果出现Running type checking...，则认为pyright安装成功
             if "Running type checking..." in script_result.stdout:
@@ -69,8 +65,6 @@ class EnvRepairPyrightExecuteNode:
                     pyright_json_str = script_result.stdout.split("Running type checking...\n")[1].strip()
                     try:
                         pyright_result = json.loads(pyright_json_str)
-                        # 统计缺失导入错误数量（reportMissingImports）
-                        # 从 generalDiagnostics 中筛选出 rule == "reportMissingImports" 的项
                         general_diagnostics = pyright_result.get("generalDiagnostics", [])
                         missing_imports_issues = [
                             diag for diag in general_diagnostics
@@ -84,23 +78,20 @@ class EnvRepairPyrightExecuteNode:
                             "env_issues": missing_imports_issues,
                             "issues_count": issues_count,
                         }
+                        self._logger.info(f"pyright_result: {json.dumps(pyright_result, indent=2, ensure_ascii=False)}")
 
                     except json.JSONDecodeError as e:
-                        self._logger.warning(f"Failed to parse pyright JSON output: {e}")
-                        pyright_returecode = -1
+                        self._logger.error(f"Failed to parse pyright JSON output: {e}")
                 except Exception as e:
-                    self._logger.warning(f"Failed to extract pyright output: {e}")
-                    pyright_returecode = -1
+                    self._logger.error(f"Failed to extract pyright output: {e}")
             
-            # 如果有错误信息，将其添加到结果中
-            if error_messages:
-                pyright_returecode = -1
-                test_result_dict = {
-                    "command": "pyright_installation",
-                    "returncode": pyright_returecode,
-                    "env_issues": script_result.stdout,
-                    "issues_count": -1,
-                }
+            pyright_returecode = -1
+            test_result_dict = {
+                "command": "pyright_installation",
+                "returncode": pyright_returecode,
+                "env_issues": script_result.stdout,
+                "issues_count": -1,
+            }
 
             self._logger.info(f"Detected {issues_count} issues (including missing import errors and installation errors)")
 
