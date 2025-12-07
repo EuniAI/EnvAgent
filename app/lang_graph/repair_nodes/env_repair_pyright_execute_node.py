@@ -47,7 +47,7 @@ class EnvRepairPyrightExecuteNode:
         # Use bash -l to start a login shell, ensuring ~/.bashrc is loaded (including virtual environment activation)
         self._logger.info(f"Executing environment quality check script: {script_path}")
         run_script_cmd = f"bash -l -c '{script_path} {project_path} {output_dir}'"
-        script_result = self.container.execute_command_with_exit_code(run_script_cmd, print_output=False)
+        script_result = self.container.execute_command_with_exit_code(run_script_cmd, print_output=False, timeout=1800)
 
         # Record script output for debugging and error capture
         self._logger.debug(f"Script execution return code: {script_result.returncode}")
@@ -78,49 +78,31 @@ class EnvRepairPyrightExecuteNode:
                         ]
                         issues_count = len(missing_imports_issues)
                         pyright_returecode = 0 if issues_count == 0 else -1
+                        test_result_dict = {
+                            "command": "pyright_check",
+                            "returncode": pyright_returecode,
+                            "env_issues": missing_imports_issues,
+                            "issues_count": issues_count,
+                        }
 
                     except json.JSONDecodeError as e:
                         self._logger.warning(f"Failed to parse pyright JSON output: {e}")
-                        error_messages.append("pyright 输出 JSON 文件无效")
                         pyright_returecode = -1
                 except Exception as e:
                     self._logger.warning(f"Failed to extract pyright output: {e}")
-                    error_messages.append(f"提取 pyright 输出失败: {str(e)}")
                     pyright_returecode = -1
-            else:
-                # 检查是否有安装错误
-                if "Error: pyright is not available as a Python module" in script_result.stdout:
-                    error_messages.append("pyright 不可用，无法执行类型检查")
-                elif "Error: Failed to install pyright" in script_result.stdout:
-                    error_messages.append("pyright 安装失败")
-                elif "Error: python or python3 command not found" in script_result.stdout:
-                    error_messages.append("未找到 Python 命令")
-                else:
-                    error_messages.append("pyright 执行失败或未生成有效输出")
             
             # 如果有错误信息，将其添加到结果中
             if error_messages:
                 pyright_returecode = -1
-                for error_msg in error_messages:
-                    error_issue = {
-                        "file": "pyright_installation",
-                        "message": error_msg,
-                        "rule": "installation_error"
-                    }
-                    missing_imports_issues.append(error_issue)
-            
-            # 更新问题数量（确保包含所有问题：缺失导入错误和安装错误）
-            issues_count = len(missing_imports_issues)
+                test_result_dict = {
+                    "command": "pyright_installation",
+                    "returncode": pyright_returecode,
+                    "env_issues": script_result.stdout,
+                    "issues_count": -1,
+                }
 
             self._logger.info(f"Detected {issues_count} issues (including missing import errors and installation errors)")
-
-            # Build result dictionary: update test_result, do not append
-            test_result_dict = {
-                "command": "pyright_check",
-                "returncode": pyright_returecode,  # 0 errors means success
-                "env_issues": missing_imports_issues,
-                "issues_count": issues_count,
-            }
 
             # Update history record
             test_command_result_history = state.get("test_command_result_history", []) + [
