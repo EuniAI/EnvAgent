@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     KNOWLEDGE_GRAPH_CHUNK_SIZE: int
     KNOWLEDGE_GRAPH_CHUNK_OVERLAP: int
     MAX_TOKEN_PER_NEO4J_RESULT: int
+    REPAIR_RECURSION_LIMIT: int
 
     # LLM models
     ADVANCED_MODEL: str

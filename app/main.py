@@ -301,7 +301,7 @@ def reproduce_test(
 
     if debug_mode:
         try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=50)
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
         except Exception as e:
             logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
             return False, None, None, None, None

@@ -57,43 +57,44 @@ class EnvRepairPyrightExecuteNode:
             # Initialize default values
             issues_count = 0
             missing_imports_issues = []
+            pyright_returecode = -1
             
             # 如果出现Running type checking...，则认为pyright安装成功
             if "Running type checking..." in script_result.stdout:
                 # 提取 pyright JSON 输出（在 "Running type checking..." 之后的内容）
                 try:
                     pyright_json_str = script_result.stdout.split("Running type checking...\n")[1].strip()
-                    try:
-                        pyright_result = json.loads(pyright_json_str)
-                        general_diagnostics = pyright_result.get("generalDiagnostics", [])
-                        missing_imports_issues = [
-                            diag for diag in general_diagnostics
-                            if diag.get("rule") == "reportMissingImports"
-                        ]
-                        issues_count = len(missing_imports_issues)
-                        pyright_returecode = 0 if issues_count == 0 else -1
-                        test_result_dict = {
-                            "command": "pyright_check",
-                            "returncode": pyright_returecode,
-                            "env_issues": missing_imports_issues,
-                            "issues_count": issues_count,
-                        }
-                        self._logger.info(f"pyright_result: {json.dumps(pyright_result, indent=2, ensure_ascii=False)}")
+                    pyright_result = json.loads(pyright_json_str)
+                    general_diagnostics = pyright_result.get("generalDiagnostics", [])
+                    missing_imports_issues = [
+                        diag for diag in general_diagnostics
+                        if diag.get("rule") == "reportMissingImports"
+                    ]
+                    issues_count = len(missing_imports_issues)
+                    pyright_returecode = 0 if issues_count == 0 else 1
+                    
+                    self._logger.info(f"pyright_result: {json.dumps(missing_imports_issues, indent=2, ensure_ascii=False)}")
 
-                    except json.JSONDecodeError as e:
-                        self._logger.error(f"Failed to parse pyright JSON output: {e}")
                 except Exception as e:
                     self._logger.error(f"Failed to extract pyright output: {e}")
-            
-            pyright_returecode = -1
-            test_result_dict = {
-                "command": "pyright_installation",
-                "returncode": pyright_returecode,
-                "env_issues": script_result.stdout,
-                "issues_count": -1,
-            }
 
-            self._logger.info(f"Detected {issues_count} issues (including missing import errors and installation errors)")
+            if pyright_returecode != -1:
+                test_result_dict = {
+                        "command": "pyright_check",
+                        "returncode": pyright_returecode,
+                        "env_issues": missing_imports_issues,
+                        "issues_count": issues_count,
+                    }
+                self._logger.info(f"Detected {issues_count} issues ")
+            else:
+                test_result_dict = {
+                    "command": "pyright_installation",
+                    "returncode": pyright_returecode,
+                    "env_issues": script_result.stdout,
+                    "issues_count": -1,
+                }
+
+                self._logger.info(f"Detected Pyrightinstallation errors")
 
             # Update history record
             test_command_result_history = state.get("test_command_result_history", []) + [
