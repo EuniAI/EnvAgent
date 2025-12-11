@@ -21,7 +21,6 @@ from app.services.neo4j_service import Neo4jService
 from app.services.repository_service import RepositoryService
 from app.utils.logger_manager import get_thread_logger
 
-# SWEBENCH_IMAGE_FORMAT = "swebench/sweb.eval.x86_64.{repo_prefix}_1776_{instance_id}:v1"
 
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
