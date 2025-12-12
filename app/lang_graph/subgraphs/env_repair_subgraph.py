@@ -100,19 +100,19 @@ class EnvRepairSubgraph:
         workflow.add_node("check_status", env_repair_check_node)  # 检查状态
 
         # 根据 test_mode 条件性添加节点
-        if test_mode == "generation":
-            workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
-            workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
-            workflow.add_node(
-                "update_test_command", env_repair_test_update_command_node
-            )  # 更新测试命令
-        elif test_mode == "pyright":
+        
+        if test_mode == "pyright":
             workflow.add_node("execute_pyright", env_repair_pyright_execute_node)  # 执行pyright
             workflow.add_node("analyse_pyright_error", env_repair_pyright_analyse_node)  # 分析pyright错误
             # workflow.add_node(
             #     "update_command", env_repair_update_command_node
             # )  # 更新测试命令
-
+        else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+            workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
+            workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
+            workflow.add_node(
+                "update_test_command", env_repair_test_update_command_node
+            )  # 更新测试命令
 
 
 
@@ -131,7 +131,7 @@ class EnvRepairSubgraph:
             if test_mode == "pyright":
                 base_mapping["case3"] = "execute_pyright"
                 base_mapping["case4"] = "analyse_pyright_error"  # pyright 模式下，case4（检查失败）应该分析pyright错误
-            elif test_mode == "generation":
+            else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
                 base_mapping["case3"] = "execute_test"
                 base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
             return base_mapping
@@ -159,17 +159,18 @@ class EnvRepairSubgraph:
         # Tool execution returns to update_command for continuation
     
         # 执行测试后，检查状态
-        if test_mode == "generation":
-            workflow.add_edge("execute_test", "check_status")
-            workflow.add_edge("analyse_test_error", "update_test_command")
-            workflow.add_edge("update_test_command", "execute_test")
-        elif test_mode == "pyright":
+        
+        if test_mode == "pyright":
             # pyright 模式：执行环境质量检查后，直接检查状态
             workflow.add_edge("execute_pyright", "check_status")
             # 如果 pyright 检查失败（issues_count > 0），会通过 router 分析错误并生成修复命令
             workflow.add_edge("analyse_pyright_error", "update_command")
             # workflow.add_edge("update_command", "execute_env")
             # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
+        else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+            workflow.add_edge("execute_test", "check_status")
+            workflow.add_edge("analyse_test_error", "update_test_command")
+            workflow.add_edge("update_test_command", "execute_test")
 
         # 检查状态后，决定是否继续循环
         workflow.add_conditional_edges(

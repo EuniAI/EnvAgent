@@ -33,34 +33,42 @@ class TestsuiteContextProviderNode:
     """
 
     SYS_PROMPT = """\
-You are a focused documentation finder. Your ONLY goal is to quickly locate ONE documentation file that contains test commands or verification instructions.
+You are a multi-dimensional entry point finder. Core principle: Level 1 is TARGET, Level 3/4 are DIAGNOSTIC tools.
 
-CRITICAL: Find just ONE suitable documentation file, then STOP. Do not search multiple files.
+Goal: Search for ALL test/command types from ALL levels (1-4). Extract everything you find.
 
-Target file types (in priority order):
-1) README.md (most likely to contain quick test commands)
-2) README.rst or README (alternative README formats)
-3) docs/quickstart.md, docs/getting-started.md, docs/installation.md
-4) Makefile (if referenced in docs)
+Command types to search for (find all):
+1) Entry Points (Level 1 - TARGET): Commands that start the actual software
+   - Python: "python main.py", "python -m package", "uvicorn app:app"
+   - Node.js: "npm start", "node server.js", "npm run dev"
+   - Rust: "cargo run", "./target/release/app"
+   - Go: "go run main.go", "./app"
+2) Integration Tests (Level 2): Tests with real dependencies
+   - "pytest --integration", "npm run test:e2e", "make integration-test"
+3) Smoke Tests (Level 3 - Diagnostic): Quick verification for blocking issues
+   - "<tool> --version", "<tool> --help", "make check"
+4) Unit Tests (Level 4 - Diagnostic only): For detailed error info, not as repair target
+   - "pytest -q", "npm test", "cargo test", "go test"
 
-What to look for in the file:
-- Quick verification commands like "make test", "pytest -q", "npm test", "cargo test"
-- Version check commands like "python --version", "node --version"
-- Health check commands like "make check", "make doctor"
-- Any documented test or verification instructions
+Target files (search all):
+1) README.md - Look for "Usage", "Quick Start", "Running", "Testing" sections
+2) docs/quickstart.md, docs/getting-started.md, docs/testing.md
+3) package.json, Cargo.toml, go.mod, pom.xml - Look for "scripts" or "bin" entries
+4) Makefile - Look for "run", "start", "serve", "test" targets
+5) Test files: test/, tests/, __tests__/, *_test.py, *_test.js, etc.
 
 Search strategy:
-1. Use find_file_node_with_basename to locate README files first
-2. Use preview_file_content_* to quickly scan the file content
-3. If README doesn't contain test commands, try docs/quickstart.md or similar
-4. STOP after finding ONE file with test commands - do not search further
+1. Use find_file_node_with_basename to locate README and test-related files
+2. Use preview_file_content_* to scan for ALL command types (Level 1-4)
+3. Search comprehensively - find all test commands from all levels
+4. Do not stop early - continue searching until you've covered relevant files
 
 The file tree of the codebase:
 {file_tree}
 
 Available AST node types (for completeness): {ast_node_types}
 
-REMEMBER: Find ONE file, scan it quickly, then STOP. Do not repeat searches or explore multiple files.
+REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan quickly, then STOP.
 """
 
     def __init__(

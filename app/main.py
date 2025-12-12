@@ -28,7 +28,7 @@ logger, file_handler = get_thread_logger(__name__)
 debug_mode = True
 
 
-test_mode = "pyright"  # generation pyright pytest
+test_mode = "pyright"  # generation pyright pytest CI/CD
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -207,6 +207,7 @@ def reproduce_test(
     # Initialize the Testsuite graph
     testsuite_subgraph = TestsuiteSubgraph(
         model=llm_service.advanced_model,
+        test_mode=test_mode,
         kg=knowledge_graph,
         local_path=repo_path,
         neo4j_driver=neo4j_service.neo4j_driver,

@@ -9,9 +9,15 @@ class TestsuiteContextQueryMessageNode:
     def __init__(self):
         self._logger, _file_handler = get_thread_logger(__name__)
         self.SYS_PROMPT = (
-            "You are to discover ONE minimal, safe, and quick verification shell command "
-            "from README/docs to confirm the environment/setup works (e.g., '<tool> --version', "
-            "'<package> --help', 'make check', 'pytest -q'). Avoid destructive or long-running commands."
+            "You are an environment verification agent focused on FUNCTIONAL EXECUTABILITY. "
+            "Core principle: Level 1 (Entry Points) is the TARGET, Level 3/4 are DIAGNOSTIC tools. "
+            "Goal: Find commands from ALL levels (1-4) for comprehensive coverage. Commands will be run strategically later. "
+            "Level 1 (Target): Python ('python main.py', 'python -m package'), Node.js ('npm start', 'node server.js'), "
+            "Rust ('cargo run'), Go ('go run main.go'); "
+            "Level 2 (Integration): 'pytest --integration', 'npm run test:e2e'; "
+            "Level 3 (Diagnostic): '<tool> --version', '<tool> --help' - for blocking issues; "
+            "Level 4 (Diagnostic): 'pytest -q', 'npm test' - for detailed error info only. "
+            "Avoid destructive or long-running commands."
         )
 
     def __call__(self, state: TestsuiteState):

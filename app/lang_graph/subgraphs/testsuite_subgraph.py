@@ -8,16 +8,13 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.states.testsuite_state import TestsuiteState
-from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import (
-    TestsuiteContextExtractionNode,
-)
-from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import (
-    TestsuiteContextProviderNode,
-)
-from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import (
-    TestsuiteContextQueryMessageNode,
-)
+from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import TestsuiteContextExtractionNode
+from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import TestsuiteContextProviderNode
+from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import TestsuiteContextQueryMessageNode
 from app.lang_graph.testsuite_nodes.testsuite_context_refine_node import TestsuiteContextRefineNode
+from app.lang_graph.testsuite_nodes.testsuite_classify_node import TestsuiteClassifyNode
+from app.lang_graph.testsuite_nodes.testsuite_sequence_node import TestsuiteSequenceNode
+from app.lang_graph.testsuite_nodes.testsuite_cicd_workflow_node import TestsuiteCICDWorkflowNode
 
 
 class TestsuiteSubgraph:
@@ -44,6 +41,7 @@ class TestsuiteSubgraph:
     def __init__(
         self,
         model: BaseChatModel,
+        test_mode: str,
         kg: KnowledgeGraph,
         local_path: str,
         neo4j_driver: neo4j.Driver,
@@ -58,72 +56,99 @@ class TestsuiteSubgraph:
             neo4j_driver (neo4j.Driver): Driver for executing Cypher queries in Neo4j.
             max_token_per_neo4j_result (int): Token limit for responses from graph tools.
         """
-        # Step 1: Generate an initial query from the user's input
-        testsuite_context_query_message_node = TestsuiteContextQueryMessageNode()
 
-        # Step 2: Provide candidate context snippets using knowledge graph tools
-        testsuite_context_provider_node = TestsuiteContextProviderNode(
-            model, kg, neo4j_driver, max_token_per_neo4j_result
-        )
+        self.test_mode = test_mode
+        self.local_path = local_path
 
-        # Step 3: Add tool node to handle tool-based retrieval invocation dynamically
-        # The tool message will be added to the end of the context provider messages
-        testsuite_context_provider_tools = ToolNode(
-            tools=testsuite_context_provider_node.tools,
-            name="context_provider_tools",
-            messages_key="testsuite_context_provider_messages",
-        )
+        if self.test_mode == "CI/CD":
+            # CI/CD mode: Find and read workflow files from .github/workflows
+            testsuite_cicd_workflow_node = TestsuiteCICDWorkflowNode(local_path)
 
-        # Step 4: Extract the Context
-        testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, local_path)
+            # Construct a simple workflow for CI/CD mode
+            workflow = StateGraph(TestsuiteState)
 
-        # Step 5: Reset tool messages to prepare for the next iteration (if needed)
-        # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
+            # Add the workflow node
+            workflow.add_node("testsuite_cicd_workflow_node", testsuite_cicd_workflow_node)
 
-        # Step 6: Refine the query if needed and loop back
-        testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg)
+            # Set the entry point
+            workflow.set_entry_point("testsuite_cicd_workflow_node")
 
-        # Construct the LangGraph workflow
-        workflow = StateGraph(TestsuiteState)
+            # End after workflow discovery
+            workflow.add_edge("testsuite_cicd_workflow_node", END)
 
-        # Add all nodes to the graph
-        workflow.add_node(
-            "testsuite_context_query_message_node", testsuite_context_query_message_node
-        )
-        workflow.add_node("testsuite_context_provider_node", testsuite_context_provider_node)
-        workflow.add_node("testsuite_context_provider_tools", testsuite_context_provider_tools)
-        workflow.add_node("testsuite_context_extraction_node", testsuite_context_extraction_node)
-        # workflow.add_node(
-        #     "reset_testsuite_context_provider_messages_node", reset_testsuite_context_provider_messages_node
-        # )
-        workflow.add_node("testsuite_context_refine_node", testsuite_context_refine_node)
+            # Compile and store the subgraph
+            self.subgraph = workflow.compile()
 
-        # Set the entry point for the workflow
-        workflow.set_entry_point("testsuite_context_query_message_node")
-        # Define edges between nodes
-        workflow.add_edge("testsuite_context_query_message_node", "testsuite_context_provider_node")
+        else:  # generation 模式下
+            # Step 1: Generate an initial query from the user's input
+            testsuite_context_query_message_node = TestsuiteContextQueryMessageNode()
 
-        # Conditional: Use tool node if tools_condition is satisfied
-        workflow.add_conditional_edges(
-            "testsuite_context_provider_node",
-            functools.partial(tools_condition, messages_key="testsuite_context_provider_messages"),
-            {"tools": "testsuite_context_provider_tools", END: "testsuite_context_extraction_node"},
-        )
-        workflow.add_edge("testsuite_context_provider_tools", "testsuite_context_provider_node")
-        # workflow.add_edge("testsuite_context_extraction_node", "reset_testsuite_context_provider_messages_node")
-        # workflow.add_edge("reset_testsuite_context_provider_messages_node", "testsuite_context_refine_node")
-        workflow.add_edge("testsuite_context_extraction_node", "testsuite_context_refine_node")
+            # Step 2: Provide candidate context snippets using knowledge graph tools
+            testsuite_context_provider_node = TestsuiteContextProviderNode(
+                model, kg, neo4j_driver, max_token_per_neo4j_result
+            )
 
-        # If refined_query is non-empty AND no command found yet, loop back to provider; else terminate
-        workflow.add_conditional_edges(
-            "testsuite_context_refine_node",
-            lambda state: bool(state["testsuite_refined_query"])
-            and not bool(state.get("testsuite_command", "")),
-            {True: "testsuite_context_provider_node", False: END},
-        )
+            # Step 3: Add tool node to handle tool-based retrieval invocation dynamically
+            # The tool message will be added to the end of the context provider messages
+            testsuite_context_provider_tools = ToolNode(
+                tools=testsuite_context_provider_node.tools,
+                name="context_provider_tools",
+                messages_key="testsuite_context_provider_messages",
+            )
 
-        # Compile and store the subgraph
-        self.subgraph = workflow.compile()
+            # Step 4: Extract the Context
+            testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, local_path)
+
+            # Step 5: Reset tool messages to prepare for the next iteration (if needed)
+            # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
+
+            # Step 6: Refine the query if needed and loop back
+            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg)
+
+            testsuite_classify_node = TestsuiteClassifyNode(model)
+            testsuite_sequence_node = TestsuiteSequenceNode(model)
+
+            # Construct the LangGraph workflow
+            workflow = StateGraph(TestsuiteState)
+
+            # Add all nodes to the graph
+            workflow.add_node(
+                "testsuite_context_query_message_node", testsuite_context_query_message_node
+            )
+            workflow.add_node("testsuite_context_provider_node", testsuite_context_provider_node)
+            workflow.add_node("testsuite_context_provider_tools", testsuite_context_provider_tools)
+            workflow.add_node("testsuite_context_extraction_node", testsuite_context_extraction_node)
+            workflow.add_node("testsuite_classify_node", testsuite_classify_node)
+            workflow.add_node("testsuite_context_refine_node", testsuite_context_refine_node)
+            workflow.add_node("testsuite_sequence_node", testsuite_sequence_node)
+
+            # Set the entry point for the workflow
+            workflow.set_entry_point("testsuite_context_query_message_node")
+            # Define edges between nodes
+            workflow.add_edge("testsuite_context_query_message_node", "testsuite_context_provider_node")
+
+            # Conditional: Use tool node if tools_condition is satisfied
+            workflow.add_conditional_edges(
+                "testsuite_context_provider_node",
+                functools.partial(tools_condition, messages_key="testsuite_context_provider_messages"),
+                {"tools": "testsuite_context_provider_tools", END: "testsuite_context_extraction_node"},
+            )
+            workflow.add_edge("testsuite_context_provider_tools", "testsuite_context_provider_node")
+            workflow.add_edge("testsuite_context_extraction_node", "testsuite_classify_node")
+            workflow.add_edge("testsuite_classify_node", "testsuite_context_refine_node")
+
+            # If refined_query is non-empty AND no command found yet, loop back to provider; else terminate
+            workflow.add_conditional_edges(
+                "testsuite_context_refine_node",
+                lambda state: bool(state["testsuite_refined_query"])
+                and not bool(state.get("testsuite_command", "")),
+                {True: "testsuite_context_provider_node", False: testsuite_sequence_node},
+            )
+
+            workflow.add_edge("testsuite_sequence_node", END)
+
+            # Compile and store the subgraph
+            self.subgraph = workflow.compile()
 
     def invoke(self, max_refined_query_loop: int) -> Dict[str, str]:
         """

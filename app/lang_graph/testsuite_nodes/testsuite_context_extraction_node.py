@@ -10,15 +10,33 @@ from app.utils.lang_graph_util import (
 from app.utils.logger_manager import get_thread_logger
 
 SYS_PROMPT = """
-You are a command extraction agent. From the provided README/documentation snippets, extract as many runnable shell commands as possible that can verify the environment setup.
+You are a command classifier and extractor. Core principle: Level 1 is TARGET, Level 3/4 are DIAGNOSTIC tools.
 
-Strict requirements:
-- Prefer minimal, non-destructive commands that finish quickly (e.g., "<tool> --version", "<package> --help", "make check", "pytest -q", "uv run ... --version")
-- Extract ALL suitable commands found in the documentation snippets
-- Do not invent commands; only use commands explicitly shown in the docs
-- Return a list of command strings in the structured output
-- If no suitable commands are present, return an empty list
-- Remove duplicate commands and prioritize the most useful ones
+Goal: Extract ALL test/command types from ALL levels (1-4) found in the documentation.
+
+Classify each command as:
+Level 1 (TARGET - Highest priority): Commands that start the actual software
+- Python: "python main.py", "python -m package", "uvicorn app:app"
+- Node.js: "npm start", "node server.js", "npm run dev"
+- Rust: "cargo run", "./target/release/app"
+- Go: "go run main.go", "./app"
+
+Level 2 (Integration): Tests with real dependencies
+- "pytest --integration", "npm run test:e2e", "make integration-test"
+
+Level 3 (Diagnostic): Quick verification for blocking issues
+- "<tool> --version", "<tool> --help", "make check"
+
+Level 4 (Diagnostic only): For detailed error info, not as repair target
+- "pytest -q", "npm test", "cargo test", "go test"
+
+Requirements:
+- Extract ALL suitable commands found from ALL levels
+- Classify each by level (1-4)
+- Do not skip any test commands - extract everything
+- Do not invent commands; only use commands explicitly shown
+- Return list of commands (prioritized by level, Level 1 first)
+- Remove duplicates
 """
 
 HUMAN_MESSAGE = """
@@ -31,16 +49,17 @@ Documentation snippets observed (may contain irrelevant parts):
 Relative path of the Documentation:
 {relative_path}
 
-Task: Output multiple safe, quick verification shell commands from the snippets above.
+Task: Extract and classify commands by executability level (1=Entry Point, 2=Integration, 3=Smoke, 4=Unit Test). 
+Prioritize Level 1-2 commands. Return commands sorted by level (highest first).
 """
 
 
 class TestsuiteCommandStructuredOutput(BaseModel):
     commands: list[str] = Field(
-        description="A list of runnable shell commands to verify setup. Empty list if none found."
+        description="A list of runnable shell commands to verify setup, sorted by executability level (Level 1-4, highest first). Empty list if none found."
     )
     reasoning: str = Field(
-        description="Brief justification for why these commands verify the environment."
+        description="Brief justification including the executability level classification (Level 1=Entry Point, 2=Integration, 3=Smoke, 4=Unit Test) for each command."
     )
 
 

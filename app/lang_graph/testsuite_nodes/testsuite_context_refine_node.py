@@ -18,12 +18,34 @@ class TestsuiteContextRefineStructuredOutput(BaseModel):
 
 class TestsuiteContextRefineNode:
     SYS_PROMPT = """
-You are a refinement assistant focused on finding a single quick verification command from README/docs.
+You are a refinement assistant focused on FUNCTIONAL EXECUTABILITY. Core principle: Level 1 is TARGET, Level 3/4 are DIAGNOSTIC tools.
 
-Decision policy:
-- If a suitable command has already been identified, do NOT request more context (return empty refined_query).
-- If not, propose a short refined query that targets README, Quickstart, Installation, Getting Started, or Makefile targets referenced in docs to surface a quick, safe command.
-- Avoid asking for code internals; prioritize documentation text and examples.
+CRITICAL: This node is the defense line against Repo2Run-style behavior (blindly running unit tests only).
+
+Rule of Thumb (经验法则):
+1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
+2. No Level 1 AND steps remaining → Switch dimension and continue searching
+   - If currently searching docs → switch to code structure (find main.py, app.py, __main__.py, etc.)
+   - If currently searching code → switch to docs (README, quickstart, etc.)
+3. Steps exhausted → STOP (return empty refined_query) - accept what we have
+
+Decision policy (Target-Driven, Multi-Source Diagnostic):
+Step 1: Check if Level 1 (Entry Point) exists
+- If Level 1 found: STOP immediately (return empty refined_query) - celebrate!
+- If Level 1 NOT found: proceed to Step 2
+
+Step 2: Check remaining steps
+- If steps remaining >= 1: Switch dimension and continue (return refined_query)
+- If steps exhausted: STOP (return empty refined_query) - accept current commands
+
+Priority for refined query (when switching dimension):
+- From docs to code: Search for entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
+- From code to docs: Search for "Usage", "Quick Start", "Running" sections
+- Examples: Python ("python main.py"), Node.js ("npm start"), Rust ("cargo run"), Go ("go run main.go")
+
+Note: Level 1 is mandatory. We must try multiple dimensions before giving up.
+
+Avoid: code internals.
 
 Output must follow the structured schema and must NOT contain code fences.
 """
@@ -39,12 +61,37 @@ Original user request:
 {original_query}
 --- END ORIGINAL QUERY ---
 
-Recent commands:
+Found commands:
 --- BEGIN COMMANDS ---
 {commands_str}
---- END DOC ---
+--- END COMMANDS ---
 
-Goal: If no quick verification command has been identified yet, craft a concise follow-up instruction that will search README, Quickstart, Installation, Getting Started sections, or Makefile targets referenced in docs to find a minimal, safe command (version/help/make check/pytest -q).
+Remaining search steps: {remaining_steps}
+Current search dimension: {current_dimension}
+
+Executability level assessment (Target-Driven Strategy):
+- Level 1 (TARGET): Proves real execution - MANDATORY, must find
+- Level 2 (Integration): Tests with real deps - OPTIONAL
+- Level 3 (Diagnostic): Quick verification for blocking issues - OPTIONAL but useful
+- Level 4 (Diagnostic only): May use mocks - OPTIONAL but useful for detailed error info
+
+Rule of Thumb (经验法则):
+1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
+2. No Level 1 AND steps remaining → Switch dimension and continue
+   - If searching docs → switch to code structure (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
+   - If searching code → switch to docs (README "Usage", "Quick Start", "Running" sections)
+3. Steps exhausted → STOP (return empty refined_query) - accept what we have
+
+Decision logic:
+1. Check: Does Level 1 exist?
+   - YES → STOP immediately (return empty refined_query)
+   - NO → proceed to step 2
+
+2. Check: Steps remaining?
+   - If steps >= 1: Switch dimension and continue (return refined_query)
+   - If steps = 0: STOP (return empty refined_query) - accept current commands
+
+Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.js ("npm start"), Rust ("cargo run"), Go ("go run main.go").
 """
 
     def __init__(self, model: BaseChatModel, kg: KnowledgeGraph):
@@ -61,20 +108,33 @@ Goal: If no quick verification command has been identified yet, craft a concise 
 
     def format_refine_message(self, state: TestsuiteState):
         original_query = state.get("query", "Find a quick verification command from docs")
-        # doc_snippets = transform_tool_messages_to_str(
-        #     extract_last_tool_messages(state.get("testsuite_context_command", []))
-        # )
-        # return self.REFINE_PROMPT.format(
-        #     file_tree=self.file_tree,
-        #     original_query=original_query,
-        #     doc_snippets=doc_snippets,
-        # )
         commands = state.get("testsuite_command", [])
-        commands_str = "\n".join([c for c in commands if c])
+        commands_str = "\n".join([c for c in commands if c]) if commands else "No commands found"
+        
+        # Determine remaining steps
+        remaining_steps = state.get("testsuite_max_refined_query_loop", 0)
+        
+        # Determine current search dimension based on previous queries
+        # This is a heuristic - in practice, you might track this in state
+        previous_messages = state.get("testsuite_context_provider_messages", [])
+        current_dimension = "docs"  # default
+        if previous_messages:
+            last_query = str(previous_messages[-1].content if hasattr(previous_messages[-1], 'content') else previous_messages[-1])
+            if any(keyword in last_query.lower() for keyword in ["main.py", "app.py", "__main__", "src/main", "cmd/"]):
+                current_dimension = "code"
+            else:
+                current_dimension = "docs"
+        
+        # Determine switch dimension
+        switch_dimension = "code structure (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)" if current_dimension == "docs" else "docs (README Usage, Quick Start, Running sections)"
+        
         return self.REFINE_PROMPT.format(
             file_tree=self.file_tree,
             original_query=original_query,
             commands_str=commands_str,
+            remaining_steps=remaining_steps,
+            current_dimension=current_dimension,
+            switch_dimension=switch_dimension,
         )
 
     def __call__(self, state: TestsuiteState):
