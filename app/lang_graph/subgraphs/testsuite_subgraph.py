@@ -14,7 +14,8 @@ from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import 
 from app.lang_graph.testsuite_nodes.testsuite_context_refine_node import TestsuiteContextRefineNode
 from app.lang_graph.testsuite_nodes.testsuite_classify_node import TestsuiteClassifyNode
 from app.lang_graph.testsuite_nodes.testsuite_sequence_node import TestsuiteSequenceNode
-from app.lang_graph.testsuite_nodes.testsuite_cicd_workflow_node import TestsuiteCICDWorkflowNode
+from app.lang_graph.testsuite_nodes.testsuite_cicd_find_workflows_node import TestsuiteCICDFindWorkflowsNode
+from app.lang_graph.testsuite_nodes.testsuite_cicd_extract_test_commands_node import TestsuiteCICDExtractTestCommandsNode
 
 
 class TestsuiteSubgraph:
@@ -61,20 +62,26 @@ class TestsuiteSubgraph:
         self.local_path = local_path
 
         if self.test_mode == "CI/CD":
-            # CI/CD mode: Find and read workflow files from .github/workflows
-            testsuite_cicd_workflow_node = TestsuiteCICDWorkflowNode(local_path)
+            # CI/CD mode: Find workflow files and extract test commands
+            # Step 1: Find workflow files from .github/workflows
+            testsuite_cicd_find_workflows_node = TestsuiteCICDFindWorkflowsNode(local_path)
+            
+            # Step 2: Extract test commands from workflow files using LLM
+            testsuite_cicd_extract_test_commands_node = TestsuiteCICDExtractTestCommandsNode(model, local_path)
 
             # Construct a simple workflow for CI/CD mode
             workflow = StateGraph(TestsuiteState)
 
-            # Add the workflow node
-            workflow.add_node("testsuite_cicd_workflow_node", testsuite_cicd_workflow_node)
+            # Add the nodes
+            workflow.add_node("testsuite_cicd_find_workflows_node", testsuite_cicd_find_workflows_node)
+            workflow.add_node("testsuite_cicd_extract_test_commands_node", testsuite_cicd_extract_test_commands_node)
 
             # Set the entry point
-            workflow.set_entry_point("testsuite_cicd_workflow_node")
-
-            # End after workflow discovery
-            workflow.add_edge("testsuite_cicd_workflow_node", END)
+            workflow.set_entry_point("testsuite_cicd_find_workflows_node")
+            
+            # Connect: find workflows -> extract test commands -> end
+            workflow.add_edge("testsuite_cicd_find_workflows_node", "testsuite_cicd_extract_test_commands_node")
+            workflow.add_edge("testsuite_cicd_extract_test_commands_node", END)
 
             # Compile and store the subgraph
             self.subgraph = workflow.compile()
@@ -142,7 +149,7 @@ class TestsuiteSubgraph:
                 "testsuite_context_refine_node",
                 lambda state: bool(state["testsuite_refined_query"])
                 and not bool(state.get("testsuite_command", "")),
-                {True: "testsuite_context_provider_node", False: testsuite_sequence_node},
+                {True: "testsuite_context_provider_node", False: "testsuite_sequence_node"},
             )
 
             workflow.add_edge("testsuite_sequence_node", END)

@@ -28,7 +28,7 @@ logger, file_handler = get_thread_logger(__name__)
 debug_mode = True
 
 
-test_mode = "pyright"  # generation pyright pytest CI/CD
+test_mode = "CI/CD"  # generation pyright pytest CI/CD
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -236,38 +236,40 @@ def reproduce_test(
     )
     
     if debug_mode:
+        #     return (
+        #     True,
+        #     {},
+        #     {},
+        #     container_git_repo.playground_path,
+        #     container.print_container_info(),
+        # )
         pass
+
+    
     elif not debug_mode:
         testsuite_commands = []
         logger.info("Starting testsuite...")
-        if test_mode == "generation":
-            try:
-                testsuiteoutput_states = testsuite_subgraph.invoke(
-                    max_refined_query_loop=5,
-                )
-                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
-                with open(
-                    os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w"
-                ) as f:
-                    for command in testsuite_commands:
-                        f.write(command + "\n")
-            except Exception as e:
-                logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-                # Clear the knowledge graph and repository
-                container.cleanup()
-                git_repo.reset_repository()
-                logger.removeHandler(file_handler)
-                file_handler.close()
-                return False, None, None, None, None
+        try:
+            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=5,)
+            testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w") as f:
+                for command in testsuite_commands:
+                    f.write(command + "\n")
+        except Exception as e:
+            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+            # Clear the knowledge graph and repository
+            container.cleanup()
+            git_repo.reset_repository()
+            logger.removeHandler(file_handler)
+            file_handler.close()
+            return False, None, None, None, None
 
         logger.info("Starting environment implementation...")
         """
         todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
         """
         try:
-            env_output_states = env_implement_subgraph.invoke(
-                recursion_limit=200,
-            )
+            env_output_states = env_implement_subgraph.invoke(recursion_limit=200,)
         except Exception as e:
             logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
@@ -299,12 +301,11 @@ def reproduce_test(
         doc["test_command"] = testsuite_commands
 
 
-    if debug_mode:
-        try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
-        except Exception as e:
-            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-            return False, None, None, None, None
+    try:
+        env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+    except Exception as e:
+        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+        return False, None, None, None, None
 
     # Get container information
     container_info = container.print_container_info()

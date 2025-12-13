@@ -43,3 +43,4 @@ class TestsuiteState(TypedDict):
     # CI/CD workflow information
     testsuite_workflow_files: Sequence[str]
     testsuite_workflow_contents: dict[str, str]
+    testsuite_workflow_summaries: dict[str, str]  # LLM-extracted test commands and setup steps
