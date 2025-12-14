@@ -2,8 +2,8 @@
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from langgraph.graph.message import add_messages
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.lang_graph_util import (
     extract_last_tool_messages,
 )
@@ -131,7 +131,14 @@ class TestsuiteContextExtractionNode:
 
         if commands:
             self._logger.info(f"Extracted verification commands: {commands}")
-            return {"testsuite_command": commands}
+            state_update = {"testsuite_command": commands}
+            state_for_saving = dict(state)
+            state_for_saving["testsuite_command"] = add_messages(
+                state.get("testsuite_command", []),
+                commands
+            )
+            save_testsuite_states_to_json(state_for_saving, self.local_path)
+            return state_update
         else:
             self._logger.info("No suitable commands found in current snippets")
             return {"testsuite_command": []}

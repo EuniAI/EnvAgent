@@ -12,10 +12,12 @@ import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
-
+from pathlib import Path
+from langgraph.graph.message import add_messages
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
 from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 
 
 class TestsuiteContextProviderNode:
@@ -77,6 +79,7 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
         kg: KnowledgeGraph,
         neo4j_driver: neo4j.Driver,
         max_token_per_result: int,
+        local_path: Path,
     ):
         """Initializes the ContextProviderNode with model, knowledge graph, and database connection.
 
@@ -106,7 +109,7 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
         self._logger, _file_handler = get_thread_logger(__name__)
-
+        self.local_path = local_path
     def _init_tools(self):
         """
         Initializes KnowledgeGraph traversal tools.
@@ -313,7 +316,14 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
             response = self.model_with_tools.invoke(truncated_history)
             self._logger.debug(response)
             # The response will be added to the bottom of the list
-            return {"testsuite_context_provider_messages": [response]}
+            state_update = {"testsuite_context_provider_messages": [response]}
+            state_for_saving = dict(state)
+            state_for_saving["testsuite_context_provider_messages"] = add_messages(
+                state.get("testsuite_context_provider_messages", []),
+                [response]
+            )
+            save_testsuite_states_to_json(state_for_saving, self.local_path)
+            return state_update
         except Exception as e:
             if "context_length_exceeded" in str(e):
                 self._logger.warning(
@@ -323,6 +333,13 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
                 truncated_history = self._truncate_messages(message_history, max_tokens=4000)
                 response = self.model_with_tools.invoke(truncated_history)
                 self._logger.debug(response)
-                return {"testsuite_context_provider_messages": [response]}
+                state_update = {"testsuite_context_provider_messages": [response]}
+                state_for_saving = dict(state)
+                state_for_saving["testsuite_context_provider_messages"] = add_messages(
+                    state.get("testsuite_context_provider_messages", []),
+                    [response]
+                )
+                save_testsuite_states_to_json(state_for_saving, self.local_path)
+                return state_update
             else:
                 raise

@@ -36,7 +36,7 @@ class TestsuiteState(TypedDict):
 
     testsuite_context_provider_messages: Annotated[Sequence[BaseMessage], add_messages]
     testsuite_refined_query: str
-    testsuite_command: Sequence[str]
+    testsuite_command: Annotated[Sequence[str], add_messages]
     
     # Test classification results
     testsuite_has_level1: bool

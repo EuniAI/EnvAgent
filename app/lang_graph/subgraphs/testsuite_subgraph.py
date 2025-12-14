@@ -88,11 +88,11 @@ class TestsuiteSubgraph:
 
         else:  # generation 模式下
             # Step 1: Generate an initial query from the user's input
-            testsuite_context_query_message_node = TestsuiteContextQueryMessageNode()
+            testsuite_context_query_message_node = TestsuiteContextQueryMessageNode(local_path)
 
             # Step 2: Provide candidate context snippets using knowledge graph tools
             testsuite_context_provider_node = TestsuiteContextProviderNode(
-                model, kg, neo4j_driver, max_token_per_neo4j_result
+                model, kg, neo4j_driver, max_token_per_neo4j_result, local_path
             )
 
             # Step 3: Add tool node to handle tool-based retrieval invocation dynamically
@@ -110,10 +110,10 @@ class TestsuiteSubgraph:
             # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
 
             # Step 6: Refine the query if needed and loop back
-            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg)
+            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, local_path)
 
-            testsuite_classify_node = TestsuiteClassifyNode(model)
-            testsuite_sequence_node = TestsuiteSequenceNode(model)
+            testsuite_classify_node = TestsuiteClassifyNode(model, local_path)
+            testsuite_sequence_node = TestsuiteSequenceNode(model, local_path)
 
             # Construct the LangGraph workflow
             workflow = StateGraph(TestsuiteState)
@@ -176,5 +176,5 @@ class TestsuiteSubgraph:
         }
 
         output_state = self.subgraph.invoke(input_state, config)
-
+        save_testsuite_states_to_json(output_state, self.local_path)
         return output_state

@@ -3,9 +3,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-
+from langgraph.graph.message import add_messages
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.logger_manager import get_thread_logger
 
 
@@ -162,4 +162,10 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
                 HumanMessage(content=response.refined_query)
             ]
 
+        state_for_saving = dict(state)
+        state_for_saving["testsuite_refined_query"] = add_messages(
+            state.get("testsuite_refined_query", []),
+            [response.refined_query]
+        )
+        save_testsuite_states_to_json(state_for_saving, self.local_path)
         return state_update
