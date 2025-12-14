@@ -5,7 +5,7 @@ from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
 from app.utils.logger_manager import get_thread_logger
 
 
-class ContextQueryMessageNode:
+class EnvImplementFileContextQueryMessageNode:
     def __init__(self):
         self._logger, _file_handler = get_thread_logger(__name__)
 

@@ -16,13 +16,23 @@ class EnvImplementState(TypedDict):
     max_refined_query_loop: int  # Maximum number of query refinement iterations
 
     # Environment implementation context
-    env_implement_query: str  # The refined query for environment implementation
-    env_implement_context: Sequence[Context]  # Contextual information for environment setup
+    # env_implement_query: str  # The refined query for environment implementation
+    # env_implement_context: Sequence[Context]  # Contextual information for environment setup
 
     # Message sequences for different operations
-    env_implement_file_context_query: (
-        str  # The refined query for environment implementation file context
-    )
+    # input of context retrieval subgraph
+    env_implement_file_context_query: str  # The refined query for environment implementation file context
+    
+    #########context retrieval#########
+    query: str
+    max_refined_query_loop: int
+    context_provider_messages: Annotated[Sequence[BaseMessage], add_messages]
+    refined_query: str
+    context: Sequence[Context]
+    involved_files: Sequence[str]  # Files that have been searched (found or not found), to avoid repeated searches
+    ########################################
+    
+    # output of context retrieval subgraph
     env_implement_file_context: Sequence[Context]  # The context for environment implementation file
     
 

@@ -4,13 +4,13 @@ import neo4j
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.env_nodes.file_context_retrieval_subgraph import FileContextRetrievalSubgraph
+from app.lang_graph.env_nodes.env_implement_file_context_retrieval_subgraph import EnvImplementFileContextRetrievalSubgraph
 from app.models.context import Context
 from app.utils.logger_manager import get_thread_logger
 
 from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
-class FileContextRetrievalSubgraphNode:
+class EnvImplementFileContextRetrievalSubgraphNode:
     def __init__(
         self,
         model: BaseChatModel,
@@ -22,7 +22,7 @@ class FileContextRetrievalSubgraphNode:
         context_key_name: str,
     ):
         self._logger, _file_handler = get_thread_logger(__name__)
-        self.file_context_retrieval_subgraph = FileContextRetrievalSubgraph(
+        self.env_implement_file_context_retrieval_subgraph = EnvImplementFileContextRetrievalSubgraph(
             model=model,
             kg=kg,
             local_path=local_path,
@@ -34,7 +34,7 @@ class FileContextRetrievalSubgraphNode:
         self.local_path = local_path
     def __call__(self, state: Dict) -> Dict[str, Sequence[Context]]:
         self._logger.info("Enter context retrieval subgraph")
-        output_state = self.file_context_retrieval_subgraph.invoke(
+        output_state = self.env_implement_file_context_retrieval_subgraph.invoke(
             state[self.query_key_name], state["max_refined_query_loop"]
         )
         self._logger.info(f"Context retrieved: {output_state['context']}")

@@ -99,7 +99,7 @@ class ContextExtractionStructuredOutput(BaseModel):
     )
 
 
-class ContextExtractionNode:
+class EnvImplementFileContextExtractionNode:
     def __init__(self, model: BaseChatModel, root_path: str):
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -231,6 +231,9 @@ class ContextExtractionNode:
             "context": final_context,
             "involved_files": all_involved_files,
         }
-        state.update(state_update)
-        save_env_implement_states_to_json(state, self.root_path)
+        # Don't manually update state - let LangGraph handle it
+        # Create a copy with updated values for saving
+        state_for_saving = dict(state)
+        state_for_saving.update(state_update)
+        save_env_implement_states_to_json(state_for_saving, self.root_path)
         return state_update

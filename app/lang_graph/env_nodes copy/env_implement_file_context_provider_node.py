@@ -6,20 +6,20 @@ with structured tools to systematically search and analyze the codebase Knowledg
 """
 
 import functools
-import logging
-import threading
-from typing import Dict, List
+from typing import Dict
 
 import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
+from app.utils.logger_manager import get_thread_logger
+from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 
-class ContextProviderNode:
+class EnvImplementFileContextProviderNode:
     """Provides contextual information from a codebase using knowledge graph search.
 
     This class implements a systematic approach to finding relevant code context
@@ -34,53 +34,71 @@ class ContextProviderNode:
     """
 
     SYS_PROMPT = """\
-You are a context gatherer that searches a Neo4j knowledge graph representation of a 
-codebase. Your role is to understand the logic of the project and efficiently find relevant code and documentation 
-context based on user queries.
+You are a Docker environment configuration specialist that searches a Neo4j knowledge graph representation of a 
+codebase. Your primary goal is to identify project environment configuration files and dependencies to generate 
+accurate Dockerfiles for containerization.
 
 Knowledge Graph Structure:
 1. Node Types:
    - FileNode: Files and directories in the codebase
-   - ASTNode: Abstract Syntax Tree nodes representing code structure
-   - TextNode: Documentation, comments, and other text content
+   - ASTNode: Abstract Syntax Tree nodes representing code structure 
+   - DeclareNode: Project dependency relationship nodes
+   - TextNode: Documentation, comments, and other text content 
 
 2. Core Relationships:
-   - HAS_FILE: Directory → File relationships
-   - HAS_AST: File → AST root node connection
-   - HAS_TEXT: File → Text chunk linkage
-   - PARENT_OF: AST node hierarchy
-   - NEXT_CHUNK: Sequential text chunk connections
+   - HAS_FILE: Directory → File relationships 
+   - HAS_AST: File → AST root node connection 
+   - HAS_TEXT: File → Text chunk linkage 
+   - HAS_DECLARE: File → Declare node connection 
+   - PARENT_OF: AST node hierarchy 
+   - NEXT_CHUNK: Sequential text chunk connections 
 
-Search Strategy Guidelines:
-1. Source Code Search:
-   - Prioritize relative_path tools when exact file location is known
-   - Fall back to basename tools for filename-only searches
-   - Use AST node searches to find specific code structures
-   - Use preview_* or read_* tools with more than hundred lines to get more context than class/function
-   - If a search returns no results, try alternative approaches with broader scope
+Environment Configuration Search Strategy:
+1. Multi-Language Dependency Management Files :
+   - Python: requirements.txt, Pipfile, poetry.lock, pyproject.toml, setup.py, conda.yml
+   - Node.js: package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, .nvmrc
+   - Java: pom.xml, build.gradle, gradle.properties, settings.gradle, build.xml
+   - C++: CMakeLists.txt, Makefile, configure.ac, vcpkg.json, conanfile.txt
+   - Go: go.mod, go.sum, go.work, Gopkg.toml, glide.yaml
+   - Rust: Cargo.toml, Cargo.lock
+   - Ruby: Gemfile, Gemfile.lock, .ruby-version
+   - PHP: composer.json, composer.lock, .php-version
+   - C#: *.csproj, *.sln, packages.config, Directory.Build.props
+   - Scala/Kotlin: build.sbt, build.gradle.kts, settings.gradle.kts
 
-2. Documentation/Text Search:
-   - Use find_text_node_* tools for docs and comments
-   - Follow NEXT_CHUNK relationships for complete text using get_next_text_node_with_node_id
-   - Search globally or scope to specific files as needed
-   - Be flexible with search terms if initial attempts fail
+2. Environment Configuration Files:
+   - Universal: .env*, config.json/yaml, docker-compose.yml, Dockerfile
+   - CI/CD: .github/workflows/, .gitlab-ci.yml, .travis.yml, .circleci/, azure-pipelines.yml
+   - Environment-specific: .env.development, .env.staging, .env.production
 
-3. Exploratory Search:
-   - Start with find_file_node_* to verify paths
-   - Use preview_file_content_* for quick content scanning
-   - Use read_code_* tools to read more content beyond previews
-   - Always have fallback strategies ready if primary search fails
+3. Build and Runtime Configuration:
+   - Build Systems: Makefile, CMakeLists.txt, configure, autotools, SCons, Bazel BUILD files
+   - Runtime Configs: systemd services, supervisor configs, nginx configs, apache configs
+   - Container: Dockerfile, docker-compose.yml, Kubernetes manifests, Helm charts
 
-4. Critical Rules:
-   - Do not repeat the same query!
+4. Documentation and Setup Instructions:
+   - README files: README.md, README.rst, README.txt, README.adoc
+   - Setup guides: INSTALL.md, SETUP.md, CONTRIBUTING.md, DEPLOYMENT.md
+   - API docs: API.md, docs/, documentation/, swagger/, openapi/
 
-In your response, just provide a short summary with a few sentences (3-4 sentences) on what you have done.
-As your searched are automatically visible to the user, you do not need to repeat them. 
+Critical Rules:
+- Focus on files that directly impact environment setup and dependencies 
+- Prioritize configuration files over source code files 
+- Do not repeat the same query! 
+- Always verify file paths and content relevance
+- DO NOT search for files that have already been searched (see involved_files list below)
+
+Files Already Searched:
+The following files have already been searched in previous iterations. DO NOT search for them again:
+{involved_files}
+
+If the involved_files list is empty, you can search for any relevant files. Otherwise, focus on files NOT in this list.
+
+In your response, provide a concise summary (3-4 sentences) of the environment configuration files found and their relevance to Dockerfile generation. 
 
 The file tree of the codebase:
 {file_tree}
 
-Available AST node types for code structure search: {ast_node_types}
 
 PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
 """
@@ -91,6 +109,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         kg: KnowledgeGraph,
         neo4j_driver: neo4j.Driver,
         max_token_per_result: int,
+        local_path: str,
     ):
         """Initializes the ContextProviderNode with model, knowledge graph, and database connection.
 
@@ -112,16 +131,11 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         self.neo4j_driver = neo4j_driver
         self.root_node_id = kg.root_node_id
         self.max_token_per_result = max_token_per_result
-
-        ast_node_types_str = ", ".join(kg.get_all_ast_node_types())
-        self.system_prompt = SystemMessage(
-            self.SYS_PROMPT.format(file_tree=kg.get_file_tree(), ast_node_types=ast_node_types_str)
-        )
+        self.local_path = local_path
+        self.kg = kg  # Store kg to access file_tree dynamically
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
-        self._logger = logging.getLogger(
-            f"thread-{threading.get_ident()}.prometheus.lang_graph.nodes.context_provider_node"
-        )
+        self._logger, _file_handler = get_thread_logger(__name__)
 
     def _init_tools(self):
         """
@@ -167,74 +181,6 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
             response_format="content_and_artifact",
         )
         tools.append(find_file_node_with_relative_path_tool)
-
-        # === AST NODE SEARCH TOOLS ===
-
-        # Tool: Find AST node by text match in file (by basename)
-        # Useful for searching specific snippets or patterns in unknown locations
-        find_ast_node_with_text_in_file_with_basename_fn = functools.partial(
-            graph_traversal.find_ast_node_with_text_in_file_with_basename,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_text_in_file_with_basename_tool = StructuredTool.from_function(
-            func=find_ast_node_with_text_in_file_with_basename_fn,
-            name=graph_traversal.find_ast_node_with_text_in_file_with_basename.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TEXT_IN_FILE_WITH_BASENAME_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTextInFileWithBasenameInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_text_in_file_with_basename_tool)
-
-        # Tool: Find AST node by text match in file (by relative path)
-        find_ast_node_with_text_in_file_with_relative_path_fn = functools.partial(
-            graph_traversal.find_ast_node_with_text_in_file_with_relative_path,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_text_in_file_with_relative_path_tool = StructuredTool.from_function(
-            func=find_ast_node_with_text_in_file_with_relative_path_fn,
-            name=graph_traversal.find_ast_node_with_text_in_file_with_relative_path.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TEXT_IN_FILE_WITH_RELATIVE_PATH_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTextInFileWithRelativePathInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_text_in_file_with_relative_path_tool)
-
-        # Tool: Find AST node by type in file (by basename)
-        # Example types: FunctionDef, ClassDef, Assign, etc.
-        find_ast_node_with_type_in_file_with_basename_fn = functools.partial(
-            graph_traversal.find_ast_node_with_type_in_file_with_basename,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_type_in_file_with_basename_tool = StructuredTool.from_function(
-            func=find_ast_node_with_type_in_file_with_basename_fn,
-            name=graph_traversal.find_ast_node_with_type_in_file_with_basename.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TYPE_IN_FILE_WITH_BASENAME_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTypeInFileWithBasenameInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_type_in_file_with_basename_tool)
-
-        # Tool: Find AST node by type in file (by relative path)
-        find_ast_node_with_type_in_file_with_relative_path_fn = functools.partial(
-            graph_traversal.find_ast_node_with_type_in_file_with_relative_path,
-            driver=self.neo4j_driver,
-            max_token_per_result=self.max_token_per_result,
-            root_node_id=self.root_node_id,
-        )
-        find_ast_node_with_type_in_file_with_relative_path_tool = StructuredTool.from_function(
-            func=find_ast_node_with_type_in_file_with_relative_path_fn,
-            name=graph_traversal.find_ast_node_with_type_in_file_with_relative_path.__name__,
-            description=graph_traversal.FIND_AST_NODE_WITH_TYPE_IN_FILE_WITH_RELATIVE_PATH_DESCRIPTION,
-            args_schema=graph_traversal.FindASTNodeWithTypeInFileWithRelativePathInput,
-            response_format="content_and_artifact",
-        )
-        tools.append(find_ast_node_with_type_in_file_with_relative_path_tool)
 
         # === TEXT/DOCUMENT SEARCH TOOLS ===
 
@@ -354,49 +300,6 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
 
         return tools
 
-    def _truncate_messages(
-        self, messages: List[BaseMessage], max_tokens: int = 6000
-    ) -> List[BaseMessage]:
-        """
-        Truncate message history to fit within token limits.
-
-        Args:
-            messages: List of messages to truncate
-            max_tokens: Maximum number of tokens to keep (default 6000 to leave room for response)
-
-        Returns:
-            Truncated list of messages
-        """
-        if not messages:
-            return messages
-
-        # Keep system prompt and recent messages
-        truncated_messages = []
-        current_tokens = 0
-
-        # Rough token estimation (1 token ≈ 4 characters for English text)
-        def estimate_tokens(text: str) -> int:
-            return len(text) // 4
-
-        # Always keep the first message (usually system prompt)
-        if messages:
-            first_msg = messages[0]
-            truncated_messages.append(first_msg)
-            current_tokens += estimate_tokens(first_msg.content)
-
-        # Add messages from the end (most recent first) until we hit the limit
-        for msg in reversed(messages[1:]):
-            msg_tokens = estimate_tokens(msg.content)
-            if current_tokens + msg_tokens > max_tokens:
-                break
-            truncated_messages.insert(1, msg)  # Insert after system prompt
-            current_tokens += msg_tokens
-
-        self._logger.debug(
-            f"Truncated messages from {len(messages)} to {len(truncated_messages)} messages"
-        )
-        return truncated_messages
-
     def __call__(self, state: Dict):
         """Processes the current state and traverse the knowledge graph to retrieve context.
 
@@ -406,26 +309,36 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         Returns:
           Dictionary that will update the state with the model's response messages.
         """
+        # Get involved_files from state to prevent duplicate searches
+        involved_files = state.get("involved_files", [])
+        if not isinstance(involved_files, list):
+            involved_files = list(involved_files) if involved_files else []
+        
+        # Format involved_files list for the prompt
+        if involved_files:
+            involved_files_str = "\n".join([f"  - {file}" for file in involved_files])
+        else:
+            involved_files_str = "  (No files have been searched yet)"
+        
+        # Create system prompt dynamically with involved_files
+        system_prompt = SystemMessage(
+            self.SYS_PROMPT.format(
+                file_tree=self.kg.get_file_tree(),
+                involved_files=involved_files_str
+            )
+        )
+        
+        if involved_files:
+            self._logger.info(
+                f"FileContextProvider: Avoiding search for {len(involved_files)} already searched files: {involved_files}"
+            )
+        
         # self._logger.debug(f"Context provider messages: {state['context_provider_messages']}")
-        message_history = [self.system_prompt] + state["context_provider_messages"]
-
-        # Truncate messages if they exceed token limits
-        truncated_history = self._truncate_messages(message_history)
-
-        try:
-            response = self.model_with_tools.invoke(truncated_history)
-            self._logger.debug(response)
-            # The response will be added to the bottom of the list
-            return {"context_provider_messages": [response]}
-        except Exception as e:
-            if "context_length_exceeded" in str(e):
-                self._logger.warning(
-                    "Context length exceeded, trying with more aggressive truncation"
-                )
-                # Try with even more aggressive truncation
-                truncated_history = self._truncate_messages(message_history, max_tokens=4000)
-                response = self.model_with_tools.invoke(truncated_history)
-                self._logger.debug(response)
-                return {"context_provider_messages": [response]}
-            else:
-                raise
+        message_history = [system_prompt] + state["context_provider_messages"]
+        response = self.model_with_tools.invoke(message_history)
+        self._logger.debug(response)
+        # The response will be added to the bottom of the list
+        state_update = {"context_provider_messages": [response]}
+        state.update(state_update)
+        save_env_implement_states_to_json(state, self.local_path)
+        return state_update

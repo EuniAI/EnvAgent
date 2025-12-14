@@ -7,17 +7,17 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.env_nodes.context_extraction_node import ContextExtractionNode
-from app.lang_graph.env_nodes.context_query_message_node import ContextQueryMessageNode
-from app.lang_graph.env_nodes.file_context_provider_node import FileContextProviderNode
-from app.lang_graph.env_nodes.file_context_refine_node import FileContextRefineNode
+from app.lang_graph.env_nodes.env_implement_file_context_extraction_node import EnvImplementFileContextExtractionNode
+# from app.lang_graph.env_nodes.env_implement_file_context_query_message_node import EnvImplementFileContextQueryMessageNode
+from app.lang_graph.env_nodes.env_implement_file_context_provider_node import EnvImplementFileContextProviderNode
+from app.lang_graph.env_nodes.env_implement_file_context_refine_node import EnvImplementFileContextRefineNode
 from app.lang_graph.nodes.reset_messages_node import ResetMessagesNode
 from app.lang_graph.states.context_retrieval_state import ContextRetrievalState
 from app.models.context import Context
 from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 
-class FileContextRetrievalSubgraph:
+class EnvImplementFileContextRetrievalSubgraph:
     """
     A LangGraph-based subgraph for retrieving relevant contextual information
     (e.g., code, documentation, definitions) from a knowledge graph based on a query.
@@ -56,10 +56,10 @@ class FileContextRetrievalSubgraph:
             max_token_per_neo4j_result (int): Token limit for responses from graph tools.
         """
         # Step 1: Generate an initial query from the user's input
-        context_query_message_node = ContextQueryMessageNode()
+        # context_query_message_node = EnvImplementFileContextQueryMessageNode()
 
         # Step 2: Provide candidate context snippets using knowledge graph tools
-        file_context_provider_node = FileContextProviderNode(
+        file_context_provider_node = EnvImplementFileContextProviderNode(
             model, kg, neo4j_driver, max_token_per_neo4j_result, local_path
         )
 
@@ -72,19 +72,19 @@ class FileContextRetrievalSubgraph:
         )
 
         # Step 4: Extract the Context
-        context_extraction_node = ContextExtractionNode(model, local_path)
+        context_extraction_node = EnvImplementFileContextExtractionNode(model, local_path)
 
         # Step 5: Reset tool messages to prepare for the next iteration (if needed)
         reset_context_provider_messages_node = ResetMessagesNode("context_provider_messages")
 
         # Step 6: Refine the query if needed and loop back
-        file_context_refine_node = FileContextRefineNode(model, kg, local_path)
+        file_context_refine_node = EnvImplementFileContextRefineNode(model, kg, local_path)
 
         # Construct the LangGraph workflow
         workflow = StateGraph(ContextRetrievalState)
 
         # Add all nodes to the graph
-        workflow.add_node("context_query_message_node", context_query_message_node)
+        # workflow.add_node("context_query_message_node", context_query_message_node)
         workflow.add_node("file_context_provider_node", file_context_provider_node)
         workflow.add_node("file_context_provider_tools", file_context_provider_tools)
         workflow.add_node("context_extraction_node", context_extraction_node)
@@ -94,9 +94,10 @@ class FileContextRetrievalSubgraph:
         workflow.add_node("file_context_refine_node", file_context_refine_node)
 
         # Set the entry point for the workflow
-        workflow.set_entry_point("context_query_message_node")
+        # workflow.set_entry_point("context_query_message_node")
+        workflow.set_entry_point("file_context_provider_node")
         # Define edges between nodes
-        workflow.add_edge("context_query_message_node", "file_context_provider_node")
+        # workflow.add_edge("context_query_message_node", "file_context_provider_node")
 
         # Conditional: Use tool node if tools_condition is satisfied
         workflow.add_conditional_edges(

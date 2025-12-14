@@ -12,14 +12,15 @@ import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage
+from langgraph.graph.message import add_messages
 
 from app.graph.knowledge_graph import KnowledgeGraph
 from app.tools import graph_traversal
 from app.utils.logger_manager import get_thread_logger
-from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
+from app.lang_graph.states.env_implement_state import EnvImplementState, save_env_implement_states_to_json
 
 
-class FileContextProviderNode:
+class EnvImplementFileContextProviderNode:
     """Provides contextual information from a codebase using knowledge graph search.
 
     This class implements a systematic approach to finding relevant code context
@@ -300,7 +301,7 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
 
         return tools
 
-    def __call__(self, state: Dict):
+    def __call__(self, state: EnvImplementState):
         """Processes the current state and traverse the knowledge graph to retrieve context.
 
         Args:
@@ -339,6 +340,13 @@ PLEASE CALL THE MINIMUM NUMBER OF TOOLS NEEDED TO ANSWER THE QUERY!
         self._logger.debug(response)
         # The response will be added to the bottom of the list
         state_update = {"context_provider_messages": [response]}
-        state.update(state_update)
-        save_env_implement_states_to_json(state, self.local_path)
+        # Create a copy of state with merged messages for saving
+        # LangGraph will automatically merge messages when applying state_update,
+        # but for saving we need to manually merge to preserve full history
+        state_for_saving = dict(state)
+        state_for_saving["context_provider_messages"] = add_messages(
+            state.get("context_provider_messages", []),
+            [response]
+        )
+        save_env_implement_states_to_json(state_for_saving, self.local_path)
         return state_update

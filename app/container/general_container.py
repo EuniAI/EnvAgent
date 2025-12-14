@@ -28,7 +28,7 @@ class GeneralContainer(BaseContainer):
     custom build and test operations.
     """
 
-    def __init__(self, project_path: Path, dockerfile_template_path: Optional[Path] = None):
+    def __init__(self, project_path: Path, project_dir: Path, dockerfile_template_path: Optional[Path] = None):
         """Initialize the general container with a unique tag name.
 
         Args:
@@ -37,7 +37,7 @@ class GeneralContainer(BaseContainer):
                 If provided, the Dockerfile content will be read from this file instead of using
                 the default hardcoded content. If None, uses the default Dockerfile content.
         """
-        super().__init__(project_path)
+        super().__init__(project_path, project_dir)
         self.tag_name = f"prometheus_envagent_container_{uuid.uuid4().hex[:10]}"
         self.dockerfile_template_path = dockerfile_template_path
 

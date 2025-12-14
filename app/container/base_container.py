@@ -3,6 +3,7 @@ import os
 import shutil
 import tarfile
 import tempfile
+import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Sequence
@@ -36,13 +37,14 @@ class BaseContainer(ABC):
     timeout: int = 120
     logger: logging.Logger
 
-    def __init__(self, project_path: Path, workdir: Optional[str] = None, temp_prefix: str = "envagent_"):
+    def __init__(self, project_path: Path, project_dir: Path, workdir: Optional[str] = None, temp_prefix: str = "tmp_envagent"):
         """Initialize the container with a project directory.
 
         Creates a temporary copy of the project directory to work with.
 
         Args:
           project_path: Path to the project directory to be containerized.
+          project_dir: Path to the project directory to save the results.
           workdir: Optional working directory inside the container.
           temp_prefix: Prefix for the temporary directory name. Defaults to "env".
         """
@@ -51,7 +53,11 @@ class BaseContainer(ABC):
 
         self._logger, _file_handler = get_thread_logger(__name__)
 
-        temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
+        # Create temp directory with project_path.name as suffix
+        unique_suffix = uuid.uuid4().hex[:8]
+        temp_dir_name = f"{temp_prefix}_{unique_suffix}_{project_path.name}"
+        temp_dir = Path(project_dir / temp_dir_name)
+        temp_dir.mkdir(parents=True, exist_ok=True)
         temp_project_path = temp_dir / project_path.name
         shutil.copytree(project_path, temp_project_path)
         self.project_path = temp_project_path.absolute()

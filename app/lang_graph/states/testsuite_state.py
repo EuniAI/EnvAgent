@@ -2,6 +2,13 @@ from typing import Annotated, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel
+from pathlib import Path
+import json
+import time
+from typing import Annotated, Any, Dict, Sequence, TypedDict
+
+timestamp = time.strftime('%Y%m%d_%H%M%S')
 
 # class TestsuiteState(TypedDict):
 #     max_refined_query_loop: int
@@ -44,3 +51,22 @@ class TestsuiteState(TypedDict):
     testsuite_workflow_files: Sequence[str]
     testsuite_workflow_contents: dict[str, str]
     testsuite_workflow_summaries: dict[str, str]  # LLM-extracted test commands and setup steps
+
+def pydantic_encoder(obj: Any) -> Any:
+    """
+    一个自定义的编码器，用于在遇到 BaseModel 实例时，将其转换为字典。
+    """
+    if isinstance(obj, BaseModel):
+        return obj.model_dump() 
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def save_testsuite_states_to_json(states: TestsuiteState, project_path: Path):
+    FILE_PATH = f"{project_path}/prometheus_testsuite_states_{timestamp}.json"
+    with open(FILE_PATH, "w") as f:
+        json.dump(states, f, default=pydantic_encoder, indent=4, ensure_ascii=False)
+
+def load_testsuite_states_from_json(project_path: Path) -> TestsuiteState:
+    FILE_PATH = f"{project_path}/prometheus_testsuite_states_{timestamp}.json"
+    with open(FILE_PATH, "r") as f:
+        return json.load(f)

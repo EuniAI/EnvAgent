@@ -17,7 +17,7 @@ class FileContextRefineStructuredOutput(BaseModel):
     )
 
 
-class FileContextRefineNode:
+class EnvImplementFileContextRefineNode:
     SYS_PROMPT = """\
 You are an intelligent assistant specialized in analyzing environment configuration context to determine if
 additional configuration files or documentation from the codebase is necessary to generate an accurate Dockerfile.
@@ -256,6 +256,9 @@ If additional context is needed:
         #         HumanMessage(content=filtered_refined_query)
         #     ]
 
-        state.update(state_update)
-        save_env_implement_states_to_json(state, self.local_path)
+        # Don't manually update state - let LangGraph handle it
+        # Create a copy with updated values for saving
+        state_for_saving = dict(state)
+        state_for_saving.update(state_update)
+        save_env_implement_states_to_json(state_for_saving, self.local_path)
         return state_update

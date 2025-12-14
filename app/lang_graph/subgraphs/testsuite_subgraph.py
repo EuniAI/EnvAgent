@@ -7,7 +7,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.graph.knowledge_graph import KnowledgeGraph
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import TestsuiteContextExtractionNode
 from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import TestsuiteContextProviderNode
 from app.lang_graph.testsuite_nodes.testsuite_context_query_message_node import TestsuiteContextQueryMessageNode

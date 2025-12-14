@@ -25,7 +25,7 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = True
+debug_mode = False
 
 
 test_mode = "CI/CD"  # generation pyright pytest CI/CD
@@ -159,6 +159,7 @@ def reproduce_test(
     github_url: str,
     github_token: str,
     project_tag: str,
+    project_dir: Path,
     dockerfile_template_path: Optional[str] = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
     # Get or create repository (repository-based logic)
@@ -188,7 +189,7 @@ def reproduce_test(
             # If relative path, resolve relative to the main.py file's directory
             main_dir = Path(__file__).parent.parent
             dockerfile_path = (main_dir / dockerfile_template_path).resolve()
-    container = GeneralContainer(repo_path, dockerfile_template_path=dockerfile_path)
+    container = GeneralContainer(repo_path, project_dir=project_dir, dockerfile_template_path=dockerfile_path)
     # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
@@ -332,12 +333,12 @@ def reproduce_test(
     help="Github token to access private repositories",
     default=None,
 )
-@click.option(
-    "--file",
-    "-f",
-    help="File to save the predictions or continue patch generating.",
-    default=f"projects/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-)
+# @click.option(
+#     "--file",
+#     "-f",
+#     help="File to save the predictions or continue patch generating.",
+#     default=f"projects/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+# )
 @click.option(
     "--max_workers",
     "-w",
@@ -356,7 +357,7 @@ def reproduce_test(
 def main(
     dataset_file_path: str,
     github_token: str,
-    file: str,
+    # file: str,
     max_workers: int,
     dockerfile_template: Optional[str],
 ):
@@ -365,6 +366,9 @@ def main(
     logger.info(f"成功解析 {len(projects)} 个项目")
 
     # 初始化预测结果字典和锁
+    project_dir = Path(settings.WORKING_DIRECTORY) / "projects" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    project_dir.mkdir(parents=True, exist_ok=True)
+    project_file = project_dir / "project_results.json"
     predictions = {}
     predictions_lock = Lock()
 
@@ -383,7 +387,9 @@ def main(
 
             # Reproduce the bug
             success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
-                github_url, github_token, project['tag'], dockerfile_template_path=project_dockerfile
+                github_url, github_token, project['tag'],
+                project_dir=project_dir, 
+                dockerfile_template_path=project_dockerfile, 
             )
 
             # Create project result with all states
@@ -444,6 +450,7 @@ def main(
             executor.submit(process_project, project): project for project in projects
         }
 
+        # project 的json结果，保存到Data的文件夹中。并且每次运行都mkdir一个文件夹，用来将文件夹
         # 使用tqdm显示进度
         with tqdm(total=len(projects), desc="处理项目") as pbar:
             for future in as_completed(future_to_project):
@@ -454,7 +461,7 @@ def main(
                         predictions[project_name] = project_result
                         # 保存当前进度到 JSON 文件
                         try:
-                            with open(file, "w", encoding="utf-8") as f:
+                            with open(project_file, "w", encoding="utf-8") as f:
                                 json.dump(predictions, f, indent=4, ensure_ascii=False)
                         except Exception as save_error:
                             logger.error(f"保存结果文件时发生错误: {save_error}")
@@ -463,7 +470,7 @@ def main(
                 finally:
                     pbar.update(1)
 
-    logger.info(f"所有项目处理完成，结果已保存到 {file}")
+    logger.info(f"所有项目处理完成，结果已保存到 {project_file}")
 
 
 if __name__ == "__main__":

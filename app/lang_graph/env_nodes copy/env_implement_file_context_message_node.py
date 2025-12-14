@@ -1,7 +1,6 @@
 
 from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.utils.logger_manager import get_thread_logger
-from langchain_core.messages import HumanMessage
 
 
 class EnvImplementFileContextMessageNode:
@@ -128,5 +127,4 @@ Find the most relevant environment configuration files with complete context for
 
         return {
             "env_implement_file_context_query": env_implement_file_context_query,
-            "context_provider_messages": [HumanMessage(env_implement_file_context_query)],
         }
