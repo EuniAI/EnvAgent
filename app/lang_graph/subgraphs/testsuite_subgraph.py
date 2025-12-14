@@ -113,7 +113,7 @@ class TestsuiteSubgraph:
             testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, local_path)
 
             testsuite_classify_node = TestsuiteClassifyNode(model, local_path)
-            testsuite_sequence_node = TestsuiteSequenceNode(model, local_path)
+            # testsuite_sequence_node = TestsuiteSequenceNode(model, local_path)
 
             # Construct the LangGraph workflow
             workflow = StateGraph(TestsuiteState)
@@ -127,7 +127,7 @@ class TestsuiteSubgraph:
             workflow.add_node("testsuite_context_extraction_node", testsuite_context_extraction_node)
             workflow.add_node("testsuite_classify_node", testsuite_classify_node)
             workflow.add_node("testsuite_context_refine_node", testsuite_context_refine_node)
-            workflow.add_node("testsuite_sequence_node", testsuite_sequence_node)
+            # workflow.add_node("testsuite_sequence_node", testsuite_sequence_node)
 
             # Set the entry point for the workflow
             workflow.set_entry_point("testsuite_context_query_message_node")
@@ -144,15 +144,15 @@ class TestsuiteSubgraph:
             workflow.add_edge("testsuite_context_extraction_node", "testsuite_classify_node")
             workflow.add_edge("testsuite_classify_node", "testsuite_context_refine_node")
 
-            # If refined_query is non-empty AND no command found yet, loop back to provider; else terminate
+            # If refined_query is non-empty, continue searching; else terminate
+            # Note: refine_node already checks level1_commands and stops if found
             workflow.add_conditional_edges(
                 "testsuite_context_refine_node",
-                lambda state: bool(state["testsuite_refined_query"])
-                and not bool(state.get("testsuite_command", "")),
-                {True: "testsuite_context_provider_node", False: "testsuite_sequence_node"},
+                lambda state: bool(state.get("testsuite_refined_query", "")),
+                {True: "testsuite_context_provider_node", False: END},
             )
 
-            workflow.add_edge("testsuite_sequence_node", END)
+            # workflow.add_edge("testsuite_sequence_node", END)
 
             # Compile and store the subgraph
             self.subgraph = workflow.compile()

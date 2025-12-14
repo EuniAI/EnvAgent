@@ -24,9 +24,9 @@ CRITICAL: This node is the defense line against Repo2Run-style behavior (blindly
 
 Rule of Thumb (经验法则):
 1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
-2. No Level 1 AND steps remaining → Switch dimension and continue searching
-   - If currently searching docs → switch to code structure (find main.py, app.py, __main__.py, etc.)
-   - If currently searching code → switch to docs (README, quickstart, etc.)
+2. No Level 1 AND steps remaining → Continue searching both docs and code
+   - Search docs: README, quickstart, usage sections
+   - Search code: entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go, etc.)
 3. Steps exhausted → STOP (return empty refined_query) - accept what we have
 
 Decision policy (Target-Driven, Multi-Source Diagnostic):
@@ -35,12 +35,13 @@ Step 1: Check if Level 1 (Entry Point) exists
 - If Level 1 NOT found: proceed to Step 2
 
 Step 2: Check remaining steps
-- If steps remaining >= 1: Switch dimension and continue (return refined_query)
+- If steps remaining >= 1: Continue searching both docs and code (return refined_query)
 - If steps exhausted: STOP (return empty refined_query) - accept current commands
 
-Priority for refined query (when switching dimension):
-- From docs to code: Search for entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
-- From code to docs: Search for "Usage", "Quick Start", "Running" sections
+Priority for refined query:
+- Search both docs and code comprehensively
+- Docs: "Usage", "Quick Start", "Running" sections in README and documentation
+- Code: entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
 - Examples: Python ("python main.py"), Node.js ("npm start"), Rust ("cargo run"), Go ("go run main.go")
 
 Note: Level 1 is mandatory. We must try multiple dimensions before giving up.
@@ -61,10 +62,13 @@ Original user request:
 {original_query}
 --- END ORIGINAL QUERY ---
 
-Found commands:
---- BEGIN COMMANDS ---
-{commands_str}
---- END COMMANDS ---
+Command classification results:
+--- BEGIN CLASSIFICATION ---
+Level 1 (Entry Point - TARGET): {level1_commands_str}
+Level 2 (Integration): {level2_commands_str}
+Level 3 (Smoke - Diagnostic): {level3_commands_str}
+Level 4 (Unit Test - Diagnostic only): {level4_commands_str}
+--- END CLASSIFICATION ---
 
 Remaining search steps: {remaining_steps}
 Current search dimension: {current_dimension}
@@ -77,9 +81,9 @@ Executability level assessment (Target-Driven Strategy):
 
 Rule of Thumb (经验法则):
 1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
-2. No Level 1 AND steps remaining → Switch dimension and continue
-   - If searching docs → switch to code structure (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
-   - If searching code → switch to docs (README "Usage", "Quick Start", "Running" sections)
+2. No Level 1 AND steps remaining → Continue searching both docs and code
+   - Search docs: README "Usage", "Quick Start", "Running" sections
+   - Search code: entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
 3. Steps exhausted → STOP (return empty refined_query) - accept what we have
 
 Decision logic:
@@ -88,14 +92,15 @@ Decision logic:
    - NO → proceed to step 2
 
 2. Check: Steps remaining?
-   - If steps >= 1: Switch dimension and continue (return refined_query)
+   - If steps >= 1: Continue searching both docs and code (return refined_query)
    - If steps = 0: STOP (return empty refined_query) - accept current commands
 
 Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.js ("npm start"), Rust ("cargo run"), Go ("go run main.go").
 """
 
-    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph):
+    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph, local_path: str):
         self.file_tree = kg.get_file_tree()
+        self.local_path = local_path
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.SYS_PROMPT),
@@ -108,36 +113,47 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
 
     def format_refine_message(self, state: TestsuiteState):
         original_query = state.get("query", "Find a quick verification command from docs")
-        commands = state.get("testsuite_command", [])
-        commands_str = "\n".join([c for c in commands if c]) if commands else "No commands found"
+        
+        # Get classified commands by level
+        level1_commands = state.get("testsuite_level1_commands", [])
+        level2_commands = state.get("testsuite_level2_commands", [])
+        level3_commands = state.get("testsuite_level3_commands", [])
+        level4_commands = state.get("testsuite_level4_commands", [])
+        
+        # Format command strings for each level
+        level1_commands_str = "\n".join(level1_commands) if level1_commands else "None"
+        level2_commands_str = "\n".join(level2_commands) if level2_commands else "None"
+        level3_commands_str = "\n".join(level3_commands) if level3_commands else "None"
+        level4_commands_str = "\n".join(level4_commands) if level4_commands else "None"
         
         # Determine remaining steps
         remaining_steps = state.get("testsuite_max_refined_query_loop", 0)
         
-        # Determine current search dimension based on previous queries
-        # This is a heuristic - in practice, you might track this in state
-        previous_messages = state.get("testsuite_context_provider_messages", [])
-        current_dimension = "docs"  # default
-        if previous_messages:
-            last_query = str(previous_messages[-1].content if hasattr(previous_messages[-1], 'content') else previous_messages[-1])
-            if any(keyword in last_query.lower() for keyword in ["main.py", "app.py", "__main__", "src/main", "cmd/"]):
-                current_dimension = "code"
-            else:
-                current_dimension = "docs"
-        
-        # Determine switch dimension
-        switch_dimension = "code structure (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)" if current_dimension == "docs" else "docs (README Usage, Quick Start, Running sections)"
+        # Search both docs and code by default
+        current_dimension = "docs and code"
         
         return self.REFINE_PROMPT.format(
             file_tree=self.file_tree,
             original_query=original_query,
-            commands_str=commands_str,
+            level1_commands_str=level1_commands_str,
+            level2_commands_str=level2_commands_str,
+            level3_commands_str=level3_commands_str,
+            level4_commands_str=level4_commands_str,
             remaining_steps=remaining_steps,
             current_dimension=current_dimension,
-            switch_dimension=switch_dimension,
         )
 
     def __call__(self, state: TestsuiteState):
+        # Check if Level 1 commands have been found - if yes, stop immediately
+        level1_commands = state.get("testsuite_level1_commands", [])
+        if level1_commands:
+            self._logger.info(
+                f"Level 1 (Entry Point) commands found: {level1_commands}. "
+                "Mission accomplished, stopping refinement."
+            )
+            return {"testsuite_refined_query": ""}
+        
+        # Check if max loop reached
         if (
             "testsuite_max_refined_query_loop" in state
             and state["testsuite_max_refined_query_loop"] == 0
@@ -163,9 +179,6 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
             ]
 
         state_for_saving = dict(state)
-        state_for_saving["testsuite_refined_query"] = add_messages(
-            state.get("testsuite_refined_query", []),
-            [response.refined_query]
-        )
+        state_for_saving["testsuite_refined_query"] = response.refined_query
         save_testsuite_states_to_json(state_for_saving, self.local_path)
         return state_update

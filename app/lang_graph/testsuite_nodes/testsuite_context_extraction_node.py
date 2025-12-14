@@ -10,32 +10,14 @@ from app.utils.lang_graph_util import (
 from app.utils.logger_manager import get_thread_logger
 
 SYS_PROMPT = """
-You are a command classifier and extractor. Core principle: Level 1 is TARGET, Level 3/4 are DIAGNOSTIC tools.
-
-Goal: Extract ALL test/command types from ALL levels (1-4) found in the documentation.
-
-Classify each command as:
-Level 1 (TARGET - Highest priority): Commands that start the actual software
-- Python: "python main.py", "python -m package", "uvicorn app:app"
-- Node.js: "npm start", "node server.js", "npm run dev"
-- Rust: "cargo run", "./target/release/app"
-- Go: "go run main.go", "./app"
-
-Level 2 (Integration): Tests with real dependencies
-- "pytest --integration", "npm run test:e2e", "make integration-test"
-
-Level 3 (Diagnostic): Quick verification for blocking issues
-- "<tool> --version", "<tool> --help", "make check"
-
-Level 4 (Diagnostic only): For detailed error info, not as repair target
-- "pytest -q", "npm test", "cargo test", "go test"
+You are a command extractor. Your goal is to extract ALL runnable shell commands found in the documentation.
 
 Requirements:
-- Extract ALL suitable commands found from ALL levels
-- Classify each by level (1-4)
-- Do not skip any test commands - extract everything
-- Do not invent commands; only use commands explicitly shown
-- Return list of commands (prioritized by level, Level 1 first)
+- Extract ALL suitable commands found in the documentation
+- Include commands that start the software, run tests, check versions, etc.
+- Do not skip any commands - extract everything you find
+- Do not invent commands; only use commands explicitly shown in the documentation
+- Return a simple list of commands without classification
 - Remove duplicates
 """
 
@@ -49,22 +31,21 @@ Documentation snippets observed (may contain irrelevant parts):
 Relative path of the Documentation:
 {relative_path}
 
-Task: Extract and classify commands by executability level (1=Entry Point, 2=Integration, 3=Smoke, 4=Unit Test). 
-Prioritize Level 1-2 commands. Return commands sorted by level (highest first).
+Task: Extract all runnable shell commands from the documentation. Return them as a list without classification.
 """
 
 
 class TestsuiteCommandStructuredOutput(BaseModel):
     commands: list[str] = Field(
-        description="A list of runnable shell commands to verify setup, sorted by executability level (Level 1-4, highest first). Empty list if none found."
+        description="A list of runnable shell commands extracted from the documentation. Empty list if none found."
     )
     reasoning: str = Field(
-        description="Brief justification including the executability level classification (Level 1=Entry Point, 2=Integration, 3=Smoke, 4=Unit Test) for each command."
+        description="Brief justification for the extracted commands."
     )
 
 
 class TestsuiteContextExtractionNode:
-    def __init__(self, model: BaseChatModel, root_path: str):
+    def __init__(self, model: BaseChatModel, local_path: str):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYS_PROMPT),
@@ -73,7 +54,7 @@ class TestsuiteContextExtractionNode:
         )
         structured_llm = model.with_structured_output(TestsuiteCommandStructuredOutput)
         self.model = prompt | structured_llm
-        self.root_path = root_path
+        self.local_path = local_path
         self._logger, file_handler = get_thread_logger(__name__)
 
     def get_human_messages(self, state: TestsuiteState) -> str:

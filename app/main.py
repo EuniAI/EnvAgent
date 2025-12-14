@@ -252,7 +252,12 @@ def reproduce_test(
         logger.info("Starting testsuite...")
         try:
             testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=5,)
-            testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+            if test_mode == "generation":
+                # 改成 level1-4
+                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+            elif test_mode == "CI/CD":
+                testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
+
             with open(os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w") as f:
                 for command in testsuite_commands:
                     f.write(command + "\n")
@@ -270,7 +275,7 @@ def reproduce_test(
         todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
         """
         try:
-            env_output_states = env_implement_subgraph.invoke(recursion_limit=200,)
+            env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
         except Exception as e:
             logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository

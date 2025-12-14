@@ -5,8 +5,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.logger_manager import get_thread_logger
+from langgraph.graph.message import add_messages
 
 
 class CommandExtractionOutput(BaseModel):
@@ -133,20 +134,33 @@ class TestsuiteCICDExtractTestCommandsNode:
         """
         self._logger.info("Starting CI/CD test command extraction process")
 
-        workflow_files = state.get("testsuite_workflow_files", [])
+        workflow_files = state.get("testsuite_cicd_workflow_files", [])
         
         if not workflow_files:
             self._logger.warning("No workflow files found in state, skipping extraction")
-            return {
-                "testsuite_workflow_contents": {},
-                "testsuite_extracted_commands": [],
+            state_update = {
+                "testsuite_cicd_workflow_contents": [],
+                "testsuite_cicd_extracted_commands": [],
             }
+            # Save state to JSON
+            state_for_saving = dict(state)
+            state_for_saving["testsuite_cicd_workflow_contents"] = add_messages(
+                state.get("testsuite_cicd_workflow_contents", []),
+                []
+            )
+            state_for_saving["testsuite_cicd_extracted_commands"] = add_messages(
+                state.get("testsuite_cicd_extracted_commands", []),
+                []
+            )
+            save_testsuite_states_to_json(state_for_saving, self.local_path)
+            return state_update
 
         # Read content and extract test commands for each workflow file
-        workflow_contents = {}
+        workflow_contents = []
         extracted_commands = []  # List of all extracted commands across all workflows
         
-        for workflow_path in workflow_files:
+        for workflow_file in workflow_files:
+            workflow_path = workflow_file.get("content", "")
             if not workflow_path or not os.path.exists(workflow_path):
                 self._logger.warning(f"Workflow file not found: {workflow_path}")
                 continue
@@ -158,7 +172,10 @@ class TestsuiteCICDExtractTestCommandsNode:
                 
             # Store relative path as key for easier reference
             relative_path = os.path.relpath(workflow_path, self.local_path)
-            workflow_contents[relative_path] = content
+            workflow_contents.append({
+                "relative_path": relative_path,
+                "content": content,
+            })
             self._logger.debug(f"Read workflow content from {relative_path} ({len(content)} chars)")
             
             # Extract commands directly from workflow file using structured output
@@ -175,8 +192,22 @@ class TestsuiteCICDExtractTestCommandsNode:
             f"total {len(extracted_commands)} executable commands found"
         )
 
-        return {
-            "testsuite_workflow_contents": workflow_contents,
-            "testsuite_extracted_commands": extracted_commands,
+        state_update = {
+            "testsuite_cicd_workflow_contents": workflow_contents,
+            "testsuite_cicd_extracted_commands": extracted_commands,
         }
+        
+        # Save state to JSON
+        state_for_saving = dict(state)
+        state_for_saving["testsuite_cicd_workflow_contents"] = add_messages(
+            state.get("testsuite_cicd_workflow_contents", []),
+            workflow_contents
+        )
+        state_for_saving["testsuite_cicd_extracted_commands"] = add_messages(
+            state.get("testsuite_cicd_extracted_commands", []),
+            extracted_commands
+        )
+        save_testsuite_states_to_json(state_for_saving, self.local_path)
+        
+        return state_update
 

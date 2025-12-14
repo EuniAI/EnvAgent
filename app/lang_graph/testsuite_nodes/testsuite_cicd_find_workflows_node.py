@@ -2,8 +2,9 @@ import os
 import subprocess
 from typing import List
 
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.logger_manager import get_thread_logger
+from langgraph.graph.message import add_messages
 
 
 class TestsuiteCICDFindWorkflowsNode:
@@ -94,13 +95,22 @@ class TestsuiteCICDFindWorkflowsNode:
 
         if not workflow_files:
             self._logger.warning("No workflow files found")
-            return {
-                "testsuite_workflow_files": [],
+            state_update = {
+                "testsuite_cicd_workflow_files": [],
             }
-
-        self._logger.info(f"Found {len(workflow_files)} workflow files")
-
-        return {
-            "testsuite_workflow_files": workflow_files,
-        }
+        else:
+            self._logger.info(f"Found {len(workflow_files)} workflow files")
+            state_update = {
+                "testsuite_cicd_workflow_files": workflow_files,
+            }
+        
+        # Save state to JSON
+        state_for_saving = dict(state)
+        state_for_saving["testsuite_cicd_workflow_files"] = add_messages(
+            state.get("testsuite_cicd_workflow_files", []),
+            workflow_files
+        )
+        save_testsuite_states_to_json(state_for_saving, self.local_path)
+        
+        return state_update
 

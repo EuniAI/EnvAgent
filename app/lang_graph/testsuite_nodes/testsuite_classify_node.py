@@ -9,15 +9,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from app.lang_graph.states.testsuite_state import TestsuiteState
+from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
+from langgraph.graph.message import add_messages
 from app.utils.logger_manager import get_thread_logger
 
 
 class TestClassifyStructuredOutput(BaseModel):
-    has_level1: bool = Field(description="Whether Level 1 (Entry Point) commands exist")
-    has_level2: bool = Field(description="Whether Level 2 (Integration) commands exist")
-    has_level3: bool = Field(description="Whether Level 3 (Smoke) commands exist")
-    has_level4: bool = Field(description="Whether Level 4 (Unit Test) commands exist")
+    level1_commands: list[str] = Field(description="List of Level 1 (Entry Point) commands")
+    level2_commands: list[str] = Field(description="List of Level 2 (Integration) commands")
+    level3_commands: list[str] = Field(description="List of Level 3 (Smoke) commands")
+    level4_commands: list[str] = Field(description="List of Level 4 (Unit Test) commands")
     reasoning: str = Field(description="Reasoning for the classification")
 
 
@@ -40,7 +41,7 @@ Level 3 (Smoke - Diagnostic): Quick verification for blocking issues
 Level 4 (Unit Test - Diagnostic only): May use mocked dependencies
 - "pytest -q", "npm test", "cargo test", "go test"
 
-Task: Classify each command by determining which level it belongs to (1-4). Provide reasoning for your classification.
+Task: For each command, determine which level (1-4) it belongs to, and organize them into separate lists by level. Provide reasoning for your classification.
 """
 
 HUMAN_MESSAGE = """
@@ -49,14 +50,14 @@ Found commands (may be from multiple sources):
 {commands_str}
 --- END COMMANDS ---
 
-Task: Classify these commands by executability level (1-4) and provide reasoning.
+Task: Classify these commands by executability level (1-4), organize them into separate lists by level, and provide reasoning for your classification.
 """
 
 
 class TestsuiteClassifyNode:
     """Classifies test commands and prevents blind execution of unit tests only."""
 
-    def __init__(self, model: BaseChatModel):
+    def __init__(self, model: BaseChatModel, local_path: str):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYS_PROMPT),
@@ -65,6 +66,7 @@ class TestsuiteClassifyNode:
         )
         structured_llm = model.with_structured_output(TestClassifyStructuredOutput)
         self.model = prompt | structured_llm
+        self.local_path = local_path
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: TestsuiteState):
@@ -79,10 +81,10 @@ class TestsuiteClassifyNode:
         if not commands:
             self._logger.warning("No commands found, cannot proceed")
             return {
-                "testsuite_has_level1": False,
-                "testsuite_has_level2": False,
-                "testsuite_has_level3": False,
-                "testsuite_has_level4": False,
+                "testsuite_level1_commands": [],
+                "testsuite_level2_commands": [],
+                "testsuite_level3_commands": [],
+                "testsuite_level4_commands": [],
             }
 
         human_prompt = HUMAN_MESSAGE.format(commands_str=commands_str)
@@ -91,25 +93,41 @@ class TestsuiteClassifyNode:
         try:
             response = self.model.invoke({"human_prompt": human_prompt})
             self._logger.info(
-                f"Classification result: Level1={response.has_level1}, "
-                f"Level2={response.has_level2}, Level3={response.has_level3}, "
-                f"Level4={response.has_level4}"
+                f"Classification result: Level1={len(response.level1_commands)} commands, "
+                f"Level2={len(response.level2_commands)} commands, "
+                f"Level3={len(response.level3_commands)} commands, "
+                f"Level4={len(response.level4_commands)} commands"
             )
             self._logger.debug(f"Reasoning: {response.reasoning}")
+            self._logger.debug(
+                f"Level1 commands: {response.level1_commands}\n"
+                f"Level2 commands: {response.level2_commands}\n"
+                f"Level3 commands: {response.level3_commands}\n"
+                f"Level4 commands: {response.level4_commands}"
+            )
 
-            return {
-                "testsuite_has_level1": response.has_level1,
-                "testsuite_has_level2": response.has_level2,
-                "testsuite_has_level3": response.has_level3,
-                "testsuite_has_level4": response.has_level4,
+            state_update = {
+                "testsuite_level1_commands": response.level1_commands,
+                "testsuite_level2_commands": response.level2_commands,
+                "testsuite_level3_commands": response.level3_commands,
+                "testsuite_level4_commands": response.level4_commands,
             }
+            state_for_saving = dict(state)
+            for level in range(1, 5):
+                key = f"testsuite_level{level}_commands"
+                state_for_saving[key] = add_messages(
+                    state.get(key, []),
+                    getattr(response, f"level{level}_commands")
+                )
+            save_testsuite_states_to_json(state_for_saving, self.local_path)
+            return state_update
         except Exception as e:
             self._logger.error(f"Error in test classification: {e}")
             # Fallback: if classification fails, be conservative
             return {
-                "testsuite_has_level1": False,
-                "testsuite_has_level2": False,
-                "testsuite_has_level3": False,
-                "testsuite_has_level4": False,
+                "testsuite_level1_commands": [],
+                "testsuite_level2_commands": [],
+                "testsuite_level3_commands": [],
+                "testsuite_level4_commands": [],
             }
 

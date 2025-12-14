@@ -42,15 +42,6 @@ class EnvImplementSubgraph:
         self.advanced_model = advanced_model
         self.container = container
         env_implement_file_context_message_node = EnvImplementFileContextMessageNode(debug_mode)
-        # env_implement_file_context_retrieval_subgraph_node = EnvImplementFileContextRetrievalSubgraphNode(
-        #     model=base_model,
-        #     kg=kg,
-        #     local_path=container.project_path,
-        #     neo4j_driver=neo4j_driver,
-        #     max_token_per_neo4j_result=max_token_per_neo4j_result,
-        #     query_key_name="env_implement_file_context_query",
-        #     context_key_name="env_implement_file_context",
-        # )
 
         #########################################################
         env_implement_file_context_provider_node = EnvImplementFileContextProviderNode(
@@ -159,11 +150,13 @@ class EnvImplementSubgraph:
     def invoke(
         self,
         recursion_limit: int = 200,
+        testsuite_commands: Optional[Sequence[str]] = None,
     ):
         input_state = {
             'query': "",
             "max_refined_query_loop": 3,
             "involved_files": [],  # Initialize empty list for tracking all searched files
+            "testsuite_commands": testsuite_commands,
         }
 
         # config = {"recursion_limit": recursion_limit}

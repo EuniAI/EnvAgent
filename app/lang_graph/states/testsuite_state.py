@@ -38,19 +38,20 @@ class TestsuiteState(TypedDict):
     testsuite_refined_query: str
     testsuite_command: Annotated[Sequence[str], add_messages]
     
-    # Test classification results
-    testsuite_has_level1: bool
-    testsuite_has_level2: bool
-    testsuite_has_level3: bool
-    testsuite_has_level4: bool
+    # Test classification results (commands organized by level)
+    testsuite_level1_commands: Annotated[Sequence[str], add_messages]
+    testsuite_level2_commands: Annotated[Sequence[str], add_messages]
+    testsuite_level3_commands: Annotated[Sequence[str], add_messages]
+    testsuite_level4_commands: Annotated[Sequence[str], add_messages]
     
     # Test execution plan (ordered sequence)
-    testsuite_execution_plan: Sequence[dict]
+    testsuite_execution_plan: Annotated[Sequence[dict], add_messages]
     
     # CI/CD workflow information
-    testsuite_workflow_files: Sequence[str]
-    testsuite_workflow_contents: dict[str, str]
-    testsuite_workflow_summaries: dict[str, str]  # LLM-extracted test commands and setup steps
+    testsuite_cicd_workflow_files: Annotated[Sequence[str], add_messages]
+    testsuite_cicd_workflow_contents: Annotated[dict[str, str], add_messages]
+    testsuite_cicd_workflow_summaries: Annotated[dict[str, str], add_messages]  # LLM-extracted test commands and setup steps
+    testsuite_cicd_extracted_commands: Annotated[Sequence[str], add_messages]
 
 def pydantic_encoder(obj: Any) -> Any:
     """
