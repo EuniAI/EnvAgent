@@ -11,7 +11,7 @@ from typing import Dict, List
 import neo4j
 from langchain.tools import StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from pathlib import Path
 from langgraph.graph.message import add_messages
 from app.graph.knowledge_graph import KnowledgeGraph
@@ -59,18 +59,45 @@ Target files (search all):
 4) Makefile - Look for "run", "start", "serve", "test" targets
 5) Test files: test/, tests/, __tests__/, *_test.py, *_test.js, etc.
 
-Search strategy:
-1. Use find_file_node_with_basename to locate README and test-related files
-2. Use preview_file_content_* to scan for ALL command types (Level 1-4)
-3. Search comprehensively - find all test commands from all levels
-4. Do not stop early - continue searching until you've covered relevant files
+Search strategy - CRITICAL: Search BOTH documentation AND code:
+1. DOCUMENTATION SEARCH:
+   - Use find_file_node_with_basename to locate README and test-related files
+   - Use preview_file_content_* to scan documentation for ALL command types (Level 1-4)
+   - Look in README.md, docs/, package.json, Makefile, etc.
+
+2. CODE INTERNAL SEARCH (MANDATORY - DO NOT SKIP):
+   - Use find_file_node_with_basename or find_file_node_with_relative_path to locate source code files
+   - Use preview_file_content_* or read_code_with_* to examine code files directly
+   - Search main entry points: main.py, index.js, src/main.rs, cmd/main.go, etc.
+   - Search test files: *_test.py, *_test.js, *_test.rs, *_test.go, etc.
+   - Look for function definitions, main() functions, if __name__ == "__main__" blocks
+   - Search for command-line argument parsing, entry point decorators, etc.
+   - Examine package.json scripts, Cargo.toml bin sections, etc.
+
+3. Comprehensive search:
+   - Search comprehensively - find all test commands from all levels
+   - Search MULTIPLE relevant files in each iteration (typically 3-5 files)
+   - Prioritize files that are most likely to contain entry points and test commands
+   - Continue searching until you've covered the most relevant files
+   - DO NOT only search documentation - you MUST also search code files!
+
+Critical Rules:
+- Do not repeat the same query!
+- DO NOT search for files that have already been searched (see involved_files list below)
+- Always verify file paths and content relevance
+- You MUST search both documentation AND code - do not skip code files!
+- Search MULTIPLE files per iteration to maximize information gathering efficiency
+
+Files Already Searched:
+The following files have already been searched in previous iterations. DO NOT search for them again:
+{involved_files}
+
+If the involved_files list is empty, you can search for any relevant files. Otherwise, focus on files NOT in this list.
 
 The file tree of the codebase:
 {file_tree}
 
 Available AST node types (for completeness): {ast_node_types}
-
-REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan quickly, then STOP.
 """
 
     def __init__(
@@ -101,11 +128,8 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
         self.neo4j_driver = neo4j_driver
         self.root_node_id = kg.root_node_id
         self.max_token_per_result = max_token_per_result
-
-        ast_node_types_str = ", ".join(kg.get_all_ast_node_types())
-        self.system_prompt = SystemMessage(
-            self.SYS_PROMPT.format(file_tree=kg.get_file_tree(), ast_node_types=ast_node_types_str)
-        )
+        self.kg = kg  # Store kg to access file_tree dynamically
+        self.ast_node_types_str = ", ".join(kg.get_all_ast_node_types())
         self.tools = self._init_tools()
         self.model_with_tools = model.bind_tools(self.tools)
         self._logger, _file_handler = get_thread_logger(__name__)
@@ -299,15 +323,43 @@ REMEMBER: Entry points > Integration > Smoke > Unit tests. Find ONE file, scan q
             from langchain_core.messages import ToolMessage
 
             recent_tool_messages = [msg for msg in messages if isinstance(msg, ToolMessage)]
-            if len(recent_tool_messages) >= 3:
+            if len(recent_tool_messages) >= 20:
                 # If we have multiple recent tool messages, check for repetition
                 self._logger.warning(
                     "Detected potential repeated tool calls, stopping to prevent infinite loop"
                 )
-                return {"testsuite_context_provider_messages": []}
+                # Add an AIMessage without tool_calls to signal tools_condition to route to extraction node
+                # This prevents the error "No messages found in input state to tool_edge"
+                stop_message = AIMessage(content="Stopping due to repeated tool calls to prevent infinite loop.")
+                return {"testsuite_context_provider_messages": [stop_message]}
 
+        # Get involved_files from state to prevent duplicate searches
+        involved_files = state.get("involved_files", [])
+        if not isinstance(involved_files, list):
+            involved_files = list(involved_files) if involved_files else []
+        
+        # Format involved_files list for the prompt
+        if involved_files:
+            involved_files_str = "\n".join([f"  - {file}" for file in involved_files])
+        else:
+            involved_files_str = "  (No files have been searched yet)"
+        
+        # Create system prompt dynamically with involved_files
+        system_prompt = SystemMessage(
+            self.SYS_PROMPT.format(
+                file_tree=self.kg.get_file_tree(),
+                ast_node_types=self.ast_node_types_str,
+                involved_files=involved_files_str
+            )
+        )
+        
+        if involved_files:
+            self._logger.info(
+                f"TestsuiteContextProvider: Avoiding search for {len(involved_files)} already searched files: {involved_files}"
+            )
+        
         # self._logger.debug(f"Context provider messages: {state['context_provider_messages']}")
-        message_history = [self.system_prompt] + state["testsuite_context_provider_messages"]
+        message_history = [system_prompt] + state["testsuite_context_provider_messages"]
 
         # Truncate messages if they exceed token limits
         truncated_history = self._truncate_messages(message_history)

@@ -37,6 +37,8 @@ class TestsuiteState(TypedDict):
     testsuite_context_provider_messages: Annotated[Sequence[BaseMessage], add_messages]
     testsuite_refined_query: str
     testsuite_command: Annotated[Sequence[str], add_messages]
+    involved_commands: Sequence[str]  # Track all commands that have been searched to prevent duplicate searches
+    involved_files: Sequence[str]  # Track all files that have been searched to prevent duplicate searches
     
     # Test classification results (commands organized by level)
     testsuite_level1_commands: Annotated[Sequence[str], add_messages]
@@ -48,13 +50,13 @@ class TestsuiteState(TypedDict):
     testsuite_execution_plan: Annotated[Sequence[dict], add_messages]
     
     # CI/CD workflow information
-    testsuite_cicd_workflow_files: Annotated[Sequence[str], add_messages]
-    testsuite_cicd_workflow_contents: Annotated[dict[str, str], add_messages]
-    testsuite_cicd_workflow_summaries: Annotated[dict[str, str], add_messages]  # LLM-extracted test commands and setup steps
-    testsuite_cicd_extracted_commands: Annotated[Sequence[str], add_messages]
+    testsuite_cicd_workflow_files: Sequence[str]
+    testsuite_cicd_workflow_contents: Sequence[dict]  # List of dicts with "relative_path" and "content" keys
+    testsuite_cicd_workflow_summaries: dict[str, str]  # LLM-extracted test commands and setup steps
+    testsuite_cicd_extracted_commands: Sequence[str]
 
 def pydantic_encoder(obj: Any) -> Any:
-    """
+    """ 
     一个自定义的编码器，用于在遇到 BaseModel 实例时，将其转换为字典。
     """
     if isinstance(obj, BaseModel):

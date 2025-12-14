@@ -28,7 +28,7 @@ logger, file_handler = get_thread_logger(__name__)
 debug_mode = False
 
 
-test_mode = "CI/CD"  # generation pyright pytest CI/CD
+test_mode = "generation"  # generation pyright pytest CI/CD
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -209,8 +209,9 @@ def reproduce_test(
     testsuite_subgraph = TestsuiteSubgraph(
         model=llm_service.advanced_model,
         test_mode=test_mode,
+        container=container,
         kg=knowledge_graph,
-        local_path=repo_path,
+        # local_path=repo_path,
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
     )
@@ -251,16 +252,21 @@ def reproduce_test(
         testsuite_commands = []
         logger.info("Starting testsuite...")
         try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=5,)
+            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
             if test_mode == "generation":
                 # 改成 level1-4
-                testsuite_commands = testsuiteoutput_states.get("testsuite_command", [])
+                testsuite_commands = {
+                    "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
+                    "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
+                    "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
+                    "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
+                }
             elif test_mode == "CI/CD":
                 testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
 
-            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "w") as f:
-                for command in testsuite_commands:
-                    f.write(command + "\n")
+
+            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
+                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
@@ -269,6 +275,14 @@ def reproduce_test(
             logger.removeHandler(file_handler)
             file_handler.close()
             return False, None, None, None, None
+
+        return (
+            True,
+            {},
+            {},
+            container_git_repo.playground_path,
+            container.print_container_info(),
+        )
 
         logger.info("Starting environment implementation...")
         """

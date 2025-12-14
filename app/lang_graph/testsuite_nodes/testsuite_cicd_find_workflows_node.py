@@ -4,7 +4,6 @@ from typing import List
 
 from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.logger_manager import get_thread_logger
-from langgraph.graph.message import add_messages
 
 
 class TestsuiteCICDFindWorkflowsNode:
@@ -104,12 +103,8 @@ class TestsuiteCICDFindWorkflowsNode:
                 "testsuite_cicd_workflow_files": workflow_files,
             }
         
-        # Save state to JSON
-        state_for_saving = dict(state)
-        state_for_saving["testsuite_cicd_workflow_files"] = add_messages(
-            state.get("testsuite_cicd_workflow_files", []),
-            workflow_files
-        )
+        # Save state to JSON (merge state_update into state)
+        state_for_saving = {**state, **state_update}
         save_testsuite_states_to_json(state_for_saving, self.local_path)
         
         return state_update

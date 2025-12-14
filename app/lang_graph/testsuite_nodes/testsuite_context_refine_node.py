@@ -1,6 +1,6 @@
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
@@ -23,15 +23,17 @@ You are a refinement assistant focused on FUNCTIONAL EXECUTABILITY. Core princip
 CRITICAL: This node is the defense line against Repo2Run-style behavior (blindly running unit tests only).
 
 Rule of Thumb (经验法则):
-1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
-2. No Level 1 AND steps remaining → Continue searching both docs and code
+1. Found Level 1 AND at least one other level (2, 3, or 4) has commands → STOP (return empty refined_query) - mission accomplished!
+2. Found Level 1 BUT no other levels have commands → Continue searching for other level commands
+3. No Level 1 AND steps remaining → Continue searching both docs and code
    - Search docs: README, quickstart, usage sections
    - Search code: entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go, etc.)
-3. Steps exhausted → STOP (return empty refined_query) - accept what we have
+4. Steps exhausted → STOP (return empty refined_query) - accept what we have
 
 Decision policy (Target-Driven, Multi-Source Diagnostic):
-Step 1: Check if Level 1 (Entry Point) exists
-- If Level 1 found: STOP immediately (return empty refined_query) - celebrate!
+Step 1: Check if Level 1 (Entry Point) exists AND other levels have commands
+- If Level 1 found AND (Level 2 OR Level 3 OR Level 4 has commands): STOP (return empty refined_query) - celebrate!
+- If Level 1 found BUT no other levels: Continue searching for other level commands (return refined_query)
 - If Level 1 NOT found: proceed to Step 2
 
 Step 2: Check remaining steps
@@ -71,7 +73,6 @@ Level 4 (Unit Test - Diagnostic only): {level4_commands_str}
 --- END CLASSIFICATION ---
 
 Remaining search steps: {remaining_steps}
-Current search dimension: {current_dimension}
 
 Executability level assessment (Target-Driven Strategy):
 - Level 1 (TARGET): Proves real execution - MANDATORY, must find
@@ -79,17 +80,19 @@ Executability level assessment (Target-Driven Strategy):
 - Level 3 (Diagnostic): Quick verification for blocking issues - OPTIONAL but useful
 - Level 4 (Diagnostic only): May use mocks - OPTIONAL but useful for detailed error info
 
-Rule of Thumb (经验法则):
-1. Found Level 1 → STOP immediately (return empty refined_query) - mission accomplished!
-2. No Level 1 AND steps remaining → Continue searching both docs and code
+Rule of Thumb:
+1. Found Level 1 AND at least one other level (2, 3, or 4) has commands → STOP (return empty refined_query) - mission accomplished!
+2. Found Level 1 BUT no other levels have commands → Continue searching for other level commands (Level 2, 3, or 4)
+3. No Level 1 AND steps remaining → Continue searching both docs and code
    - Search docs: README "Usage", "Quick Start", "Running" sections
    - Search code: entry point files (main.py, app.py, __main__.py, src/main.rs, cmd/*/main.go)
-3. Steps exhausted → STOP (return empty refined_query) - accept what we have
+4. Steps exhausted → STOP (return empty refined_query) - accept what we have
 
 Decision logic:
-1. Check: Does Level 1 exist?
-   - YES → STOP immediately (return empty refined_query)
-   - NO → proceed to step 2
+1. Check: Does Level 1 exist AND do other levels (2, 3, or 4) have commands?
+   - YES (Level 1 exists AND at least one other level has commands) → STOP (return empty refined_query)
+   - Level 1 exists BUT no other levels → Continue searching for other level commands (return refined_query)
+   - Level 1 NOT found → proceed to step 2
 
 2. Check: Steps remaining?
    - If steps >= 1: Continue searching both docs and code (return refined_query)
@@ -120,17 +123,20 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
         level3_commands = state.get("testsuite_level3_commands", [])
         level4_commands = state.get("testsuite_level4_commands", [])
         
+        # Helper function to extract content from message objects or strings
+        def extract_content(cmd):
+            if isinstance(cmd, BaseMessage):
+                return cmd.content
+            return str(cmd)
+        
         # Format command strings for each level
-        level1_commands_str = "\n".join(level1_commands) if level1_commands else "None"
-        level2_commands_str = "\n".join(level2_commands) if level2_commands else "None"
-        level3_commands_str = "\n".join(level3_commands) if level3_commands else "None"
-        level4_commands_str = "\n".join(level4_commands) if level4_commands else "None"
+        level1_commands_str = "\n".join(extract_content(cmd) for cmd in level1_commands) if level1_commands else "None"
+        level2_commands_str = "\n".join(extract_content(cmd) for cmd in level2_commands) if level2_commands else "None"
+        level3_commands_str = "\n".join(extract_content(cmd) for cmd in level3_commands) if level3_commands else "None"
+        level4_commands_str = "\n".join(extract_content(cmd) for cmd in level4_commands) if level4_commands else "None"
         
         # Determine remaining steps
         remaining_steps = state.get("testsuite_max_refined_query_loop", 0)
-        
-        # Search both docs and code by default
-        current_dimension = "docs and code"
         
         return self.REFINE_PROMPT.format(
             file_tree=self.file_tree,
@@ -140,18 +146,33 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
             level3_commands_str=level3_commands_str,
             level4_commands_str=level4_commands_str,
             remaining_steps=remaining_steps,
-            current_dimension=current_dimension,
         )
 
     def __call__(self, state: TestsuiteState):
-        # Check if Level 1 commands have been found - if yes, stop immediately
+        # Check if Level 1 commands have been found AND other levels have commands
         level1_commands = state.get("testsuite_level1_commands", [])
-        if level1_commands:
+        level2_commands = state.get("testsuite_level2_commands", [])
+        level3_commands = state.get("testsuite_level3_commands", [])
+        level4_commands = state.get("testsuite_level4_commands", [])
+        
+        # Check if we have Level 1 AND at least one other level has commands
+        has_level1 = bool(level1_commands)
+        has_other_levels = bool(level2_commands or level3_commands or level4_commands)
+        
+        if has_level1 and has_other_levels:
             self._logger.info(
                 f"Level 1 (Entry Point) commands found: {level1_commands}. "
+                f"Other levels also have commands (Level 2: {bool(level2_commands)}, "
+                f"Level 3: {bool(level3_commands)}, Level 4: {bool(level4_commands)}). "
                 "Mission accomplished, stopping refinement."
             )
             return {"testsuite_refined_query": ""}
+        
+        if has_level1 and not has_other_levels:
+            self._logger.info(
+                f"Level 1 (Entry Point) commands found: {level1_commands}, "
+                "but no other levels have commands. Continuing search for other level commands."
+            )
         
         # Check if max loop reached
         if (
@@ -162,7 +183,7 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
             return {"testsuite_refined_query": ""}
 
         human_prompt = self.format_refine_message(state)
-        self._logger.debug(human_prompt)
+        # self._logger.debug(human_prompt)
         response = self.model.invoke({"human_prompt": human_prompt})
         self._logger.debug(response)
 

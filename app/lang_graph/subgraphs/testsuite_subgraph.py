@@ -7,6 +7,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.graph.knowledge_graph import KnowledgeGraph
+from app.container.base_container import BaseContainer
 from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.lang_graph.testsuite_nodes.testsuite_context_extraction_node import TestsuiteContextExtractionNode
 from app.lang_graph.testsuite_nodes.testsuite_context_provider_node import TestsuiteContextProviderNode
@@ -43,8 +44,9 @@ class TestsuiteSubgraph:
         self,
         model: BaseChatModel,
         test_mode: str,
+        container: BaseContainer,
         kg: KnowledgeGraph,
-        local_path: str,
+        # local_path: str,
         neo4j_driver: neo4j.Driver,
         max_token_per_neo4j_result: int,
     ):
@@ -59,15 +61,15 @@ class TestsuiteSubgraph:
         """
 
         self.test_mode = test_mode
-        self.local_path = local_path
+        self.local_path = container.project_path
 
         if self.test_mode == "CI/CD":
             # CI/CD mode: Find workflow files and extract test commands
             # Step 1: Find workflow files from .github/workflows
-            testsuite_cicd_find_workflows_node = TestsuiteCICDFindWorkflowsNode(local_path)
+            testsuite_cicd_find_workflows_node = TestsuiteCICDFindWorkflowsNode(self.local_path)
             
             # Step 2: Extract test commands from workflow files using LLM
-            testsuite_cicd_extract_test_commands_node = TestsuiteCICDExtractTestCommandsNode(model, local_path)
+            testsuite_cicd_extract_test_commands_node = TestsuiteCICDExtractTestCommandsNode(model, self.local_path)
 
             # Construct a simple workflow for CI/CD mode
             workflow = StateGraph(TestsuiteState)
@@ -88,11 +90,11 @@ class TestsuiteSubgraph:
 
         else:  # generation 模式下
             # Step 1: Generate an initial query from the user's input
-            testsuite_context_query_message_node = TestsuiteContextQueryMessageNode(local_path)
+            testsuite_context_query_message_node = TestsuiteContextQueryMessageNode(self.local_path)
 
             # Step 2: Provide candidate context snippets using knowledge graph tools
             testsuite_context_provider_node = TestsuiteContextProviderNode(
-                model, kg, neo4j_driver, max_token_per_neo4j_result, local_path
+                model, kg, neo4j_driver, max_token_per_neo4j_result, self.local_path
             )
 
             # Step 3: Add tool node to handle tool-based retrieval invocation dynamically
@@ -104,15 +106,15 @@ class TestsuiteSubgraph:
             )
 
             # Step 4: Extract the Context
-            testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, local_path)
+            testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, self.local_path)
 
             # Step 5: Reset tool messages to prepare for the next iteration (if needed)
             # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
 
             # Step 6: Refine the query if needed and loop back
-            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, local_path)
+            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, self.local_path)
 
-            testsuite_classify_node = TestsuiteClassifyNode(model, local_path)
+            testsuite_classify_node = TestsuiteClassifyNode(model, self.local_path)
             # testsuite_sequence_node = TestsuiteSequenceNode(model, local_path)
 
             # Construct the LangGraph workflow
@@ -169,12 +171,14 @@ class TestsuiteSubgraph:
                 - "context" (Sequence[Context]): A list of selected context snippets relevant to the query.
         """
         # Set the recursion limit based on the maximum number of refined query loops
-        config = {"recursion_limit": max_refined_query_loop * 40}
+        config = {"recursion_limit": max_refined_query_loop * 30}
 
         input_state = {
             "testsuite_max_refined_query_loop": max_refined_query_loop,
+            "involved_commands": [],  # Initialize empty list for tracking all searched commands
+            "involved_files": [],  # Initialize empty list for tracking all searched files
         }
 
         output_state = self.subgraph.invoke(input_state, config)
-        save_testsuite_states_to_json(output_state, self.local_path)
+        # save_testsuite_states_to_json(output_state, self.local_path)
         return output_state

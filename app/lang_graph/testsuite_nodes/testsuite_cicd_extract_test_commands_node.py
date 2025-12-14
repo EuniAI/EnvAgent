@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 
 from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
 from app.utils.logger_manager import get_thread_logger
-from langgraph.graph.message import add_messages
 
 
 class CommandExtractionOutput(BaseModel):
@@ -142,16 +141,8 @@ class TestsuiteCICDExtractTestCommandsNode:
                 "testsuite_cicd_workflow_contents": [],
                 "testsuite_cicd_extracted_commands": [],
             }
-            # Save state to JSON
-            state_for_saving = dict(state)
-            state_for_saving["testsuite_cicd_workflow_contents"] = add_messages(
-                state.get("testsuite_cicd_workflow_contents", []),
-                []
-            )
-            state_for_saving["testsuite_cicd_extracted_commands"] = add_messages(
-                state.get("testsuite_cicd_extracted_commands", []),
-                []
-            )
+            # Save state to JSON (merge state_update into state)
+            state_for_saving = {**state, **state_update}
             save_testsuite_states_to_json(state_for_saving, self.local_path)
             return state_update
 
@@ -159,8 +150,7 @@ class TestsuiteCICDExtractTestCommandsNode:
         workflow_contents = []
         extracted_commands = []  # List of all extracted commands across all workflows
         
-        for workflow_file in workflow_files:
-            workflow_path = workflow_file.get("content", "")
+        for workflow_path in workflow_files:
             if not workflow_path or not os.path.exists(workflow_path):
                 self._logger.warning(f"Workflow file not found: {workflow_path}")
                 continue
@@ -192,21 +182,16 @@ class TestsuiteCICDExtractTestCommandsNode:
             f"total {len(extracted_commands)} executable commands found"
         )
 
+        self._logger.info(f"Extracted commands: {extracted_commands}")
+        
+
         state_update = {
             "testsuite_cicd_workflow_contents": workflow_contents,
             "testsuite_cicd_extracted_commands": extracted_commands,
         }
         
-        # Save state to JSON
-        state_for_saving = dict(state)
-        state_for_saving["testsuite_cicd_workflow_contents"] = add_messages(
-            state.get("testsuite_cicd_workflow_contents", []),
-            workflow_contents
-        )
-        state_for_saving["testsuite_cicd_extracted_commands"] = add_messages(
-            state.get("testsuite_cicd_extracted_commands", []),
-            extracted_commands
-        )
+        # Save state to JSON (merge state_update into state)
+        state_for_saving = {**state, **state_update}
         save_testsuite_states_to_json(state_for_saving, self.local_path)
         
         return state_update
