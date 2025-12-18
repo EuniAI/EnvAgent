@@ -318,12 +318,13 @@ Available AST node types (for completeness): {ast_node_types}
         """
         # Check for repeated queries to prevent infinite loops
         messages = state.get("testsuite_context_provider_messages", [])
-        if len(messages) > 3:
+
+        if len(messages) > 20:
             # Check if the last 3 messages contain ToolMessage (tool responses)
             from langchain_core.messages import ToolMessage
 
             recent_tool_messages = [msg for msg in messages if isinstance(msg, ToolMessage)]
-            if len(recent_tool_messages) >= 20:
+            if len(recent_tool_messages) > 20:
                 # If we have multiple recent tool messages, check for repetition
                 self._logger.warning(
                     "Detected potential repeated tool calls, stopping to prevent infinite loop"

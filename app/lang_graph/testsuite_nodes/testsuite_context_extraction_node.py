@@ -5,10 +5,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
 from app.lang_graph.states.testsuite_state import TestsuiteState, save_testsuite_states_to_json
-from app.utils.lang_graph_util import (
-    extract_last_tool_messages,
-)
 from app.utils.logger_manager import get_thread_logger
+from tqdm import tqdm
 
 SYS_PROMPT = """
 You are a command extractor. Your goal is to extract ALL runnable shell commands found in the documentation.
@@ -107,33 +105,50 @@ class TestsuiteContextExtractionNode:
         
         return involved_files
 
-    def get_human_messages(self, state: TestsuiteState) -> str:
-        # full_context_str = transform_tool_messages_to_str(
-        #     extract_last_tool_messages(state["testsuite_context_provider_messages"])
-        # )
-        # original_query = state.get("query", "Find a quick verification command from docs")
-        # return HUMAN_MESSAGE.format(
-        #     original_query=original_query,
-        #     context=full_context_str,
-        # )
+    def get_human_messages(self, state: TestsuiteState) -> list[str]:
+        """Extract all ToolMessages from testsuite_context_provider_messages and generate human messages."""
         human_messages = []
-        _extract = extract_last_tool_messages(state["testsuite_context_provider_messages"])
-        if len(_extract) > 0:
-            full_context_artifact = _extract[-1].artifact
-            for context in full_context_artifact:
-                if "preview" not in context or "FileNode" not in context:
+        all_messages = state.get("testsuite_context_provider_messages", [])
+        
+        # Get all ToolMessages directly
+        tool_messages = [msg for msg in all_messages if isinstance(msg, ToolMessage)]
+        self._logger.info(f"Found {len(tool_messages)} ToolMessages in testsuite_context_provider_messages")
+        
+        original_query = state.get("query", "Find a quick verification command from docs")
+        
+        # Process all ToolMessages
+        for tool_msg in tool_messages:
+            artifact = getattr(tool_msg, "artifact", [])
+            if not artifact:
+                continue
+            
+            if not isinstance(artifact, list):
+                artifact = [artifact]
+            
+            for context in artifact:
+                if not isinstance(context, dict):
                     continue
-                relative_path = context["FileNode"]["relative_path"]
-                preview = context["preview"]
+                
+                # Extract preview and relative_path
+                preview = context.get("preview") or context.get("content") or context.get("text")
+                if not preview:
+                    continue
+                
+                # Extract relative_path
+                if "FileNode" in context and isinstance(context["FileNode"], dict):
+                    relative_path = context["FileNode"].get("relative_path", "documentation")
+                else:
+                    relative_path = context.get("relative_path") or context.get("file_path") or "documentation"
+                
                 human_messages.append(
                     HUMAN_MESSAGE.format(
-                        original_query=state.get(
-                            "query", "Find a quick verification command from docs"
-                        ),
+                        original_query=original_query,
                         context=preview,
                         relative_path=relative_path,
                     )
                 )
+        
+        self._logger.info(f"Generated {len(human_messages)} human messages for command extraction")
         return human_messages
 
     def __call__(self, state: TestsuiteState):
@@ -152,23 +167,54 @@ class TestsuiteContextExtractionNode:
                 "testsuite_command": existing_command,
             }
         human_messages = self.get_human_messages(state)
-        self._logger.debug(human_messages)
+        
+        if not human_messages:
+            self._logger.warning("No human messages generated from testsuite_context_provider_messages")
+            # Update involved_files even if no messages
+            previous_messages = state.get("testsuite_context_provider_messages", [])
+            involved_files_from_messages = self.extract_files_from_messages(previous_messages)
+            existing_involved_files = state.get("involved_files", [])
+            if not isinstance(existing_involved_files, list):
+                existing_involved_files = list(existing_involved_files) if existing_involved_files else []
+            all_involved_files = list(existing_involved_files)
+            for file_name in involved_files_from_messages:
+                if file_name not in all_involved_files:
+                    all_involved_files.append(file_name)
+            
+            if "testsuite_context_provider_messages" in state and isinstance(state["testsuite_context_provider_messages"], list):
+                state["testsuite_context_provider_messages"].clear()
+            state_update = {
+                "testsuite_command": [],
+                "involved_files": all_involved_files,
+            }
+            state_for_saving = dict(state)
+            state_for_saving["testsuite_command"] = []
+            state_for_saving["involved_files"] = all_involved_files
+            state_for_saving["testsuite_context_provider_messages"] = []
+            save_testsuite_states_to_json(state_for_saving, self.local_path)
+            return state_update
+        
+        # Extract commands from all human messages
         all_commands = []
-        for human_message in human_messages:
-            response = self.model.invoke({"human_prompt": human_message})
-            self._logger.debug(f"Model response: {response}")
-            commands = response.commands or []
-            # Filter out empty commands and deduplicate
-            for command in commands:
-                command = command.strip()
-                if command:  # del blank command
-                    all_commands.append(command)
+        for human_message in tqdm(human_messages, desc="Extracting commands"):
+            try:
+                response = self.model.invoke({"human_prompt": human_message})
+                self._logger.debug(f"Response: {response}")
+                commands = response.commands or []
+                for command in commands:
+                    command = command.strip()
+                    if command:
+                        all_commands.append(command)
+            except Exception as e:
+                self._logger.error(f"Error extracting commands: {e}", exc_info=True)
+        
         # Remove duplicates while preserving order
         commands = list(dict.fromkeys(all_commands))
+        self._logger.info(f"Extracted {len(commands)} unique commands: {commands}")
 
         ############# 保存involved file #############
         # Extract files that were searched from tool messages
-        previous_messages = state.get("testsuite_context_provider_messages", [])
+        previous_messages = state.get("testsuite_contex_provider_messages", [])
         involved_files_from_messages = self.extract_files_from_messages(previous_messages)
         # Merge with existing involved_files in state (avoid duplicates)
         existing_involved_files = state.get("involved_files", [])

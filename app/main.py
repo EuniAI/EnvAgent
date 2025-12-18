@@ -238,52 +238,49 @@ def reproduce_test(
     )
     
     if debug_mode:
-        #     return (
-        #     True,
-        #     {},
-        #     {},
-        #     container_git_repo.playground_path,
-        #     container.print_container_info(),
-        # )
         pass
 
     
     elif not debug_mode:
         testsuite_commands = []
-        logger.info("Starting testsuite...")
-        try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
-            if test_mode == "generation":
-                # 改成 level1-4
-                testsuite_commands = {
-                    "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
-                    "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
-                    "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
-                    "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
-                }
-            elif test_mode == "CI/CD":
-                testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
+        # logger.info("Starting testsuite...")
+        # try:
+        #     testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
+        #     if test_mode == "generation":
+        #         # 改成 level1-4
+        #         testsuite_commands = {
+        #             "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
+        #             "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
+        #             "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
+        #             "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
+        #         }
+        #     elif test_mode == "CI/CD":
+        #         testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
 
 
-            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
-                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-            # Clear the knowledge graph and repository
-            container.cleanup()
-            git_repo.reset_repository()
-            logger.removeHandler(file_handler)
-            file_handler.close()
-            return False, None, None, None, None
+        #     with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
+        #         json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
+        # except Exception as e:
+        #     logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+        #     # Clear the knowledge graph and repository
+        #     # container.cleanup()
+        #     # git_repo.reset_repository()
+        #     # logger.removeHandler(file_handler)
+        #     # file_handler.close()
+        #     return (
+        #         False,
+        #         {},
+        #         {},
+        #         container_git_repo.playground_path,
+        #         container.print_container_info(),
+        #     )
 
-        return (
-            True,
-            {},
-            {},
-            container_git_repo.playground_path,
-            container.print_container_info(),
-        )
-
+        logger.info(f"parse testsuite commands...")
+        if test_mode == "generation":
+            with open(
+                os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r"
+            ) as f:
+                testsuite_commands = json.load(f)
         logger.info("Starting environment implementation...")
         """
         todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
@@ -293,18 +290,25 @@ def reproduce_test(
         except Exception as e:
             logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
             # Clear the knowledge graph and repository
-            container.cleanup()
-            git_repo.reset_repository()
-            logger.removeHandler(file_handler)
-            file_handler.close()
-            return False, None, None, None, None
+            # container.cleanup()
+            # git_repo.reset_repository()
+            # logger.removeHandler(file_handler)
+            # file_handler.close()
+            # return False, None, None, None, None
+            return (
+                False,
+                {},
+                {},
+                container_git_repo.playground_path,
+                container.print_container_info(),
+            )
 
 
     if test_mode == "generation":
         with open(
-            os.path.join(container.project_path, "prometheus_testsuite_commands.txt"), "r"
+            os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r"
         ) as f:
-            testsuite_commands = f.readlines()
+            testsuite_commands = json.load(f)
     with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
         env_setup_bash = f.read()
     testsuiteoutput_states = {}

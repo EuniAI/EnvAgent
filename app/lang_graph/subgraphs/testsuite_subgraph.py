@@ -171,7 +171,7 @@ class TestsuiteSubgraph:
                 - "context" (Sequence[Context]): A list of selected context snippets relevant to the query.
         """
         # Set the recursion limit based on the maximum number of refined query loops
-        config = {"recursion_limit": max_refined_query_loop * 30}
+        config = {"recursion_limit": max_refined_query_loop * 50}
 
         input_state = {
             "testsuite_max_refined_query_loop": max_refined_query_loop,
