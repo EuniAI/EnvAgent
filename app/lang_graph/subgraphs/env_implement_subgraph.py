@@ -26,7 +26,7 @@ from app.lang_graph.states.env_implement_state import EnvImplementState, save_en
 
 
 class EnvImplementSubgraph:
-    def __init__(
+    def __init__(   
         self,
         debug_mode: bool,
         advanced_model: BaseChatModel,
@@ -36,12 +36,13 @@ class EnvImplementSubgraph:
         git_repo: GitRepository,
         neo4j_driver: neo4j.Driver,
         max_token_per_neo4j_result: int,
-        test_commands: Optional[Sequence[str]] = None,
+        test_mode: str = "generation",
     ):
         self.debug_mode = debug_mode
         self.advanced_model = advanced_model
         self.container = container
-        env_implement_file_context_message_node = EnvImplementFileContextMessageNode(debug_mode)
+        self.test_mode = test_mode
+        env_implement_file_context_message_node = EnvImplementFileContextMessageNode(debug_mode, test_mode)
 
         #########################################################
         env_implement_file_context_provider_node = EnvImplementFileContextProviderNode(

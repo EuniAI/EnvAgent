@@ -30,21 +30,16 @@ class EnvImplementState(TypedDict):
     refined_query: str
     context: Sequence[Context]
     involved_files: Sequence[str]  # Files that have been searched (found or not found), to avoid repeated searches
+    testsuite_commands: Sequence[str]  # testsuite commands that guide the environment implementation
     ########################################
     
     # output of context retrieval subgraph
     env_implement_file_context: Sequence[Context]  # The context for environment implementation file
     
 
-    env_implement_write_messages: Annotated[
-        Sequence[BaseMessage], add_messages
-    ]  # Messages for write operations
-    env_implement_file_messages: Annotated[
-        Sequence[BaseMessage], add_messages
-    ]  # Messages for file operations
-    env_implement_execute_messages: Annotated[
-        Sequence[BaseMessage], add_messages
-    ]  # Messages for execution operations
+    env_implement_write_messages: Annotated[Sequence[BaseMessage], add_messages]  # Messages for write operations
+    env_implement_file_messages: Annotated[Sequence[BaseMessage], add_messages]  # Messages for file operations
+    env_implement_execute_messages: Annotated[Sequence[BaseMessage], add_messages]  # Messages for execution operations
 
     # Dockerfile auto-generation related
     env_implement_bash_content: str  # Generated Dockerfile content as string

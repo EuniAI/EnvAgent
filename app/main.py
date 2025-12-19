@@ -160,6 +160,7 @@ def reproduce_test(
     github_token: str,
     project_tag: str,
     project_dir: Path,
+    project_path: Optional[str] = None,
     dockerfile_template_path: Optional[str] = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
     # Get or create repository (repository-based logic)
@@ -180,6 +181,9 @@ def reproduce_test(
         settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
     )
     git_repo = repository_service.get_repository(repo_path)
+
+    # if project_path is provided, use it to create new temp project path, otherwise create new temp project path from repo_path
+    project_path = Path(project_path) if project_path else repo_path
     # Get git_repo pointing to container.project_path (temporary copy)
     # Convert dockerfile_template_path to Path if provided
     dockerfile_path = None
@@ -189,7 +193,7 @@ def reproduce_test(
             # If relative path, resolve relative to the main.py file's directory
             main_dir = Path(__file__).parent.parent
             dockerfile_path = (main_dir / dockerfile_template_path).resolve()
-    container = GeneralContainer(repo_path, project_dir=project_dir, dockerfile_template_path=dockerfile_path)
+    container = GeneralContainer(project_path, project_dir=project_dir, dockerfile_template_path=dockerfile_path)
     # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
@@ -225,6 +229,7 @@ def reproduce_test(
         git_repo=container_git_repo,
         neo4j_driver=neo4j_service.neo4j_driver,
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
+        test_mode=test_mode,
     )
     env_repair_subgraph = EnvRepairSubgraph(
         debug_mode=debug_mode,
@@ -407,12 +412,13 @@ def main(
             # Get dockerfile template path from project info or use global template
             # Prefer project-specific template, fall back to global template
             project_dockerfile = project.get("dockerfile_template") or dockerfile_template
-
+            project_path = project.get("project_path")
             # Reproduce the bug
             success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
                 github_url, github_token, project['tag'],
                 project_dir=project_dir, 
                 dockerfile_template_path=project_dockerfile, 
+                project_path=project_path,
             )
 
             # Create project result with all states
