@@ -17,7 +17,7 @@ from app.lang_graph.testsuite_nodes.testsuite_classify_node import TestsuiteClas
 from app.lang_graph.testsuite_nodes.testsuite_sequence_node import TestsuiteSequenceNode
 from app.lang_graph.testsuite_nodes.testsuite_cicd_find_workflows_node import TestsuiteCICDFindWorkflowsNode
 from app.lang_graph.testsuite_nodes.testsuite_cicd_extract_test_commands_node import TestsuiteCICDExtractTestCommandsNode
-
+from app.lang_graph.testsuite_nodes.testsuite_pytest_find_workflows_node import TestsuitePytestFindWorkflowsNode
 
 class TestsuiteSubgraph:
     """
@@ -87,7 +87,30 @@ class TestsuiteSubgraph:
 
             # Compile and store the subgraph
             self.subgraph = workflow.compile()
+        elif self.test_mode == "pytest":
+            # pytest mode: Find pytest test files and extract test commands
+            # Step 1: Find pytest test files from test/
+            testsuite_pytest_find_test_files_node = TestsuitePytestFindWorkflowsNode(self.local_path, container)
 
+            # Step 2: Extract test commands from pytest test files using LLM
+            # testsuite_pytest_extract_test_commands_node = TestsuitePytestExtractTestCommandsNode(model, self.local_path)
+            
+            # Construct a simple workflow for pytest mode
+            workflow = StateGraph(TestsuiteState)
+
+            # Add the nodes
+            workflow.add_node("testsuite_pytest_find_test_files_node", testsuite_pytest_find_test_files_node)
+            # workflow.add_node("testsuite_pytest_extract_test_commands_node", testsuite_pytest_extract_test_commands_node)
+
+            # Set the entry point
+            workflow.set_entry_point("testsuite_pytest_find_test_files_node")
+            
+            # Connect: find test files -> extract test commands -> end
+            # workflow.add_edge("testsuite_pytest_find_test_files_node", "testsuite_pytest_extract_test_commands_node")
+            workflow.add_edge("testsuite_pytest_find_test_files_node", END)
+
+            # Compile and store the subgraph
+            self.subgraph = workflow.compile()
         else:  # generation 模式下
             # Step 1: Generate an initial query from the user's input
             testsuite_context_query_message_node = TestsuiteContextQueryMessageNode(self.local_path)

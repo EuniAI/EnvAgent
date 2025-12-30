@@ -25,9 +25,9 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = False
-
-
+debug_mode = True
+repair_only_run_env_execute = False
+repair_only_run_test_execute = True
 test_mode = "generation"  # generation pyright pytest CI/CD
 
 
@@ -99,17 +99,18 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                     'tag': project_tag,
                 }
                 
-                if len(parts) > 2:
+                if len(parts) >= 3:
                     project_path = parts[2]
                     project_info["project_path"] = project_path
                 else:
                     project_info["project_path"] = None
 
-                if len(parts) > 3:
-                    dockerfile_template = parts[3]
-                    project_info["dockerfile_template"] = dockerfile_template
+                if len(parts) >= 4:
+                    docker_image_name = parts[3]
+                    project_info["docker_image_name"] = docker_image_name
                 else:
-                    project_info["dockerfile_template"] = None
+                    project_info["docker_image_name"] = None
+
 
                 projects.append(project_info)
 
@@ -162,6 +163,7 @@ def reproduce_test(
     project_dir: Path,
     project_path: Optional[str] = None,
     dockerfile_template_path: Optional[str] = None,
+    docker_image_name: Optional[str] = None,
 ) -> tuple[bool, None, None, None, None] | tuple[bool, Dict, Dict, str, str]:
     # Get or create repository (repository-based logic)
     logger.info("Getting or creating repository...")
@@ -193,7 +195,12 @@ def reproduce_test(
             # If relative path, resolve relative to the main.py file's directory
             main_dir = Path(__file__).parent.parent
             dockerfile_path = (main_dir / dockerfile_template_path).resolve()
-    container = GeneralContainer(project_path, project_dir=project_dir, dockerfile_template_path=dockerfile_path)
+    container = GeneralContainer(
+        project_path,
+        project_dir=project_dir,
+        dockerfile_template_path=dockerfile_path,
+        docker_image_name=docker_image_name,
+    )
     # Start the container with volume mapping for real-time file sync
     container.build_docker_image()
     container.start_container(use_volume_mapping=True)
@@ -234,6 +241,8 @@ def reproduce_test(
     env_repair_subgraph = EnvRepairSubgraph(
         debug_mode=debug_mode,
         test_mode=test_mode,
+        repair_only_run_env_execute=repair_only_run_env_execute,
+        repair_only_run_test_execute=repair_only_run_test_execute,
         advanced_model=llm_service.advanced_model,
         base_model=llm_service.base_model,
         container=container,
@@ -243,35 +252,32 @@ def reproduce_test(
     )
     
     if debug_mode:
-        pass
+        logger.info(f"parse testsuite commands...")
+        try:
+            # testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
+            
+            with open(
+                os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r"
+            ) as f:
+                testsuite_commands_level = json.load(f)
+                testsuite_commands_level = {
+                    "build_commands": list(set(testsuite_commands_level.get("build_commands", []))),
+                    "level1_commands": list(set(testsuite_commands_level.get("level1_commands", []))),
+                    "level2_commands": list(set(testsuite_commands_level.get("level2_commands", []))),
+                    "level3_commands": list(set(testsuite_commands_level.get("level3_commands", []))),
+                    "level4_commands": list(set(testsuite_commands_level.get("level4_commands", []))),
+                }
+                testsuite_commands = [command for level in testsuite_commands_level.values() for command in level]
+        except Exception as e:
+            # logger.debug(f"Error in testsuite commands: {str(e)}\n{traceback.format_exc()}")
+            testsuite_commands = None
 
-    
-    elif not debug_mode:
-        testsuite_commands = []
-        # logger.info("Starting testsuite...")
+        # logger.info(f"start environment implementation...")
         # try:
-        #     testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
-        #     if test_mode == "generation":
-        #         # 改成 level1-4
-        #         testsuite_commands = {
-        #             "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
-        #             "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
-        #             "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
-        #             "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
-        #         }
-        #     elif test_mode == "CI/CD":
-        #         testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
-
-
-        #     with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
-        #         json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
+        #     # env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
+        #     env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=None)
         # except Exception as e:
-        #     logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-        #     # Clear the knowledge graph and repository
-        #     # container.cleanup()
-        #     # git_repo.reset_repository()
-        #     # logger.removeHandler(file_handler)
-        #     # file_handler.close()
+        #     logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
         #     return (
         #         False,
         #         {},
@@ -279,6 +285,75 @@ def reproduce_test(
         #         container_git_repo.playground_path,
         #         container.print_container_info(),
         #     )
+
+
+        logger.info(f"parse env setup bash...")
+        with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
+            env_setup_bash = f.read()
+
+        logger.info(f"start env repair...")
+        doc["env_implement_command"] = {
+            "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
+            "file_content": env_setup_bash,
+        }
+        doc["test_command"] = testsuite_commands
+
+        try:
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+        except Exception as e:
+            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+            return (
+                False,
+                {},
+                {},
+                container_git_repo.playground_path,
+                container.print_container_info(),
+            )
+
+        return (
+                True,
+                {},
+                {},
+                container_git_repo.playground_path,
+                container.print_container_info(),
+            )
+
+
+    
+    elif not debug_mode:
+        testsuite_commands = []
+        logger.info("Starting testsuite...")
+        try:
+            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
+            if test_mode == "generation":
+                # 改成 build + level1-4
+                testsuite_commands = {
+                    "build_commands": [command.content for command in testsuiteoutput_states.get("testsuite_build_commands", [])],
+                    "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
+                    "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
+                    "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
+                    "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
+                }
+            elif test_mode == "CI/CD":
+                testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
+
+
+            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
+                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
+            # Clear the knowledge graph and repository
+            # container.cleanup()
+            # git_repo.reset_repository()
+            # logger.removeHandler(file_handler)
+            # file_handler.close()
+            return (
+                False,
+                {},
+                {},
+                container_git_repo.playground_path,
+                container.print_container_info(),
+            )
 
         logger.info(f"parse testsuite commands...")
         if test_mode == "generation":
@@ -294,12 +369,6 @@ def reproduce_test(
             env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
         except Exception as e:
             logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-            # Clear the knowledge graph and repository
-            # container.cleanup()
-            # git_repo.reset_repository()
-            # logger.removeHandler(file_handler)
-            # file_handler.close()
-            # return False, None, None, None, None
             return (
                 False,
                 {},
@@ -308,45 +377,39 @@ def reproduce_test(
                 container.print_container_info(),
             )
 
+        with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
+            env_setup_bash = f.read()
+        testsuiteoutput_states = {}
+        env_output_states = {}
 
-    if test_mode == "generation":
-        with open(
-            os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r"
-        ) as f:
-            testsuite_commands = json.load(f)
-    with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
-        env_setup_bash = f.read()
-    testsuiteoutput_states = {}
-    env_output_states = {}
-
-    # debug mode: 执行并交互env_implement_command和test_command
-    # if debug_mode:
-    
-    doc["env_implement_command"] = {
-        "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
-        "file_content": env_setup_bash,
-    }
-    if test_mode == "generation":
-        doc["test_command"] = testsuite_commands
+        # debug mode: 执行并交互env_implement_command和test_command
+        # if debug_mode:
+        
+        doc["env_implement_command"] = {
+            "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
+            "file_content": env_setup_bash,
+        }
+        if test_mode == "generation":
+            doc["test_command"] = testsuite_commands
 
 
-    try:
-        env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
-    except Exception as e:
-        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-        return False, None, None, None, None
+        try:
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+        except Exception as e:
+            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+            return False, None, None, None, None
 
-    # Get container information
-    container_info = container.print_container_info()
+        # Get container information
+        container_info = container.print_container_info()
 
-    # Return the states for logging
-    return (
-        True,
-        testsuiteoutput_states,
-        env_output_states,
-        container_git_repo.playground_path,
-        container_info,
-    )
+        # Return the states for logging
+        return (
+            True,
+            testsuiteoutput_states,
+            env_output_states,
+            container_git_repo.playground_path,
+            container_info,
+        )
 
 
 @click.command()
@@ -382,12 +445,20 @@ def reproduce_test(
     default=None,
     type=str,
 )
+@click.option(
+    "--docker_image_name",
+    "-i",
+    help="Docker image name to use for the container.",
+    default=None,
+    type=str,
+)
 def main(
     dataset_file_path: str,
     github_token: str,
     # file: str,
     max_workers: int,
     dockerfile_template: Optional[str],
+    docker_image_name: Optional[str],
 ):
     # 解析 all_projects.txt 文件、
     projects = parse_all_projects_file(dataset_file_path)
@@ -412,6 +483,7 @@ def main(
             # Get dockerfile template path from project info or use global template
             # Prefer project-specific template, fall back to global template
             project_dockerfile = project.get("dockerfile_template") or dockerfile_template
+            project_docker_image_name = project.get("docker_image_name") or docker_image_name
             project_path = project.get("project_path")
             # Reproduce the bug
             success, testsuite_states, env_states, playground_path, container_info = reproduce_test(
@@ -419,6 +491,7 @@ def main(
                 project_dir=project_dir, 
                 dockerfile_template_path=project_dockerfile, 
                 project_path=project_path,
+                docker_image_name=project_docker_image_name,
             )
 
             # Create project result with all states

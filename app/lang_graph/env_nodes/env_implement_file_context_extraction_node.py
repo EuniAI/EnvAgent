@@ -18,63 +18,64 @@ from app.utils.neo4j_util import EMPTY_DATA_MESSAGE
 from app.lang_graph.states.env_implement_state import save_env_implement_states_to_json
 
 SYS_PROMPT = """\
-You are a context summary agent that summarizes code contexts which is relevant to a given query.
- Your goal is to extract, evaluate and summary code contexts that directly answers the query requirements.
+You are a context extraction agent for environment configuration files. Your task is to READ COMPLETE FILE CONTENT and extract parts relevant to environment setup for Dockerfile generation.
 
-Your evaluation and summarization must consider two key aspects:
-1. Query Match: Which set of contexts directly address specific requirements mentioned in the query?
-2. Extended relevance: Which set of contexts provide essential information needed to understand the query topic?
+EXTRACTION PROCESS:
+1. Read the COMPLETE file content that you have seen
+2. Identify which parts are relevant to environment configuration based on the query and testsuite commands
+3. Extract those relevant parts with exact line numbers
 
-Follow these strict evaluation steps:
-1. First, identify specific requirements in the query
-2. Check which set of contexts directly addresses these requirements
-3. Check which parts of code contexts are relevant to the query
-4. Consider if they provides essential context by examining:
-   - Function dependencies
-   - Type definitions
-   - Configuration requirements
-   - Implementation details needed for completeness
+TESTSuite COMMANDS GUIDE:
+The query includes testsuite commands that need to run successfully. Use these commands to guide your extraction:
+- Analyze what dependencies, build tools, and runtime requirements are needed to run these commands
+- Extract configuration files that define these requirements
+- For Level 1 commands (Entry Points): Focus on files needed to start the software
+- For Level 2-4 commands (Tests): Focus on files needed for testing environment
 
-Query relevance guidelines - include only if:
-- It directly implements functionality mentioned in the query
-- It contains specific elements the query asks about
-- It's necessary to understand or implement query requirements
-- It provides critical information needed to answer the query
+FILE TYPE HANDLING:
 
-CRITICAL RULE:
-- You don't have to select whole piece of code that you have seen, ONLY select the parts that are relevant to the query.
-- Each context MUST be SHORT and CONCISE, focusing ONLY on the lines that are relevant to the query.
-- Several contexts can be extracted from the same file, but each context must be concise and relevant to the query.
-- Do NOT include any irrelevant lines or comments that do not contribute to answering the query.
-- Do NOT include same context multiple times.
+CONFIGURATION FILES (Extract COMPLETE content):
+- Dependency files: requirements.txt, package.json, go.mod, Cargo.toml, pom.xml, build.gradle
+- Build configs: Makefile, CMakeLists.txt, build.xml
+- Environment: .env, config.json, docker-compose.yml, Dockerfile
+- Documentation: README.md, INSTALL.md, SETUP.md
+→ Extract ENTIRE file (start_line=1, end_line=last_line)
 
-Remember: Your primary goal is to summarize contexts that directly helps answer the query requirements.
+CODE FILES (Extract relevant sections):
+- Source files (.py, .js, .java, .go, .rs, etc.)
+→ Extract only sections related to:
+  * Dependencies (imports, requires)
+  * Build configuration
+  * Entry points
+  * Runtime requirements
 
-Provide your analysis in a structured format matching the ContextExtractionStructuredOutput model.
+EXTRACTION RULES:
+- Read complete file first, then extract relevant parts
+- Configuration files: Extract complete content
+- Code files: Extract only environment-related sections
+- Match extraction to testsuite command requirements
+- Do not duplicate contexts
 
-Example output:
-```json
-{{
-    "context": [{{
-        "reasoning": "1. Query requirement analysis:\n   - Query specifically asks about password validation\n   - Context provides implementation details for password validation\n2. Extended relevance:\n   - This function is essential for understanding how passwords are validated in the system",
-        "relative_path": "pychemia/code/fireball/fireball.py",
-        "start_line": 270, # Must be greater than or equal to 1
-        "end_line": 293 # Must be greater than or equal to start_line
-    }} ......]
-}}
-```
-
-Your task is to summarize the relevant contexts to a given query and return it in the specified format.
+Return structured output with reasoning, file path, and line numbers.
 """
 
 HUMAN_MESSAGE = """\
-This is the original user query:
+This is the original user query (includes testsuite commands):
 {original_query}
 
-The context or file content that you have seen so far (Some of the context may be IRRELEVANT to the query!!!):
+The complete file content that you have seen:
 {context}
 
-REMEMBER: Your task is to summarize the relevant contexts to a given query and return it in the specified format!
+TASK:
+1. Read the COMPLETE file content above
+2. Identify parts relevant to environment configuration based on:
+   - The testsuite commands in the query
+   - Dependencies, build tools, and runtime requirements needed
+3. Extract relevant parts with exact line numbers
+4. For configuration files: Extract complete content (all lines)
+5. For code files: Extract only environment-related sections
+
+Return the extracted contexts in the specified format.
 """
 
 
@@ -226,7 +227,7 @@ class EnvImplementFileContextExtractionNode:
         if involved_files:
             self._logger.info(f"Found {len(involved_files)} newly involved files: {involved_files}")
 
-        self._logger.info(f"Context extraction complete, returning context {final_context}")
+        # self._logger.info(f"Context extraction complete, returning context {final_context}")
         state_update = {
             "context": final_context,
             "involved_files": all_involved_files,

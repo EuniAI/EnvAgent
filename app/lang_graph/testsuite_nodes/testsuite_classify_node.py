@@ -15,6 +15,7 @@ from app.utils.logger_manager import get_thread_logger
 
 
 class TestClassifyStructuredOutput(BaseModel):
+    build_commands: list[str] = Field(description="List of Build commands (e.g., mvn build, npm build, cargo build, go build)")
     level1_commands: list[str] = Field(description="List of Level 1 (Entry Point) commands")
     level2_commands: list[str] = Field(description="List of Level 2 (Integration) commands")
     level3_commands: list[str] = Field(description="List of Level 3 (Smoke) commands")
@@ -37,6 +38,15 @@ DO NOT filter:
 - Commands that are unclear - classify them instead of filtering
 
 Classify commands by executability level:
+Build Commands: Commands that build/compile the project
+- Java/Maven: "mvn build", "mvn compile", "mvn package", "mvn install"
+- Node.js: "npm build", "npm run build", "yarn build"
+- Python: "python setup.py build", "pip install -e ."
+- Rust: "cargo build", "cargo build --release"
+- Go: "go build", "go build ./..."
+- C/C++: "make", "make build", "cmake .. && make"
+- Other: "gradle build", "ant build", "dotnet build"
+
 Level 1 (Entry Point - TARGET): Commands that start the actual software
 - Python: "python main.py", "python -m package", "uvicorn app:app"
 - Node.js: "npm start", "node server.js", "npm run dev"
@@ -54,8 +64,8 @@ Level 4 (Unit Test - Diagnostic only): May use mocked dependencies
 
 Task: 
 1. First, identify and exclude ONLY clearly meaningless commands (empty, pure comments, obvious placeholders)
-2. For each remaining command (even if unclear or unusual), determine which level (1-4) it belongs to
-3. Organize commands into separate lists by level
+2. For each remaining command (even if unclear or unusual), determine which category it belongs to (Build, Level 1-4)
+3. Organize commands into separate lists by category
 4. When in doubt about a command, classify it rather than filter it out
 5. Provide reasoning for your classification, including which commands were filtered out and why (if any)
 """
@@ -68,9 +78,9 @@ Found commands (may be from multiple sources):
 
 Task: 
 1. Filter out ONLY clearly meaningless commands (empty, pure comments, obvious placeholders)
-2. Classify ALL remaining commands by executability level (1-4), even if they seem unusual
+2. Classify ALL remaining commands by category (Build, Level 1-4), even if they seem unusual
 3. When in doubt, classify rather than filter - be conservative
-4. Organize commands into separate lists by level
+4. Organize commands into separate lists by category (Build commands, Level 1-4 commands)
 5. Provide reasoning for your classification, including which commands were filtered out and why (if any)
 """
 
@@ -102,6 +112,7 @@ class TestsuiteClassifyNode:
         if not commands:
             self._logger.warning("No commands found, cannot proceed")
             return {
+                "testsuite_build_commands": [],
                 "testsuite_level1_commands": [],
                 "testsuite_level2_commands": [],
                 "testsuite_level3_commands": [],
@@ -115,13 +126,15 @@ class TestsuiteClassifyNode:
         try:
             response = self.model.invoke({"human_prompt": human_prompt})
             self._logger.info(
-                f"Classification result: Level1={len(response.level1_commands)} commands, "
+                f"Classification result: Build={len(response.build_commands)} commands, "
+                f"Level1={len(response.level1_commands)} commands, "
                 f"Level2={len(response.level2_commands)} commands, "
                 f"Level3={len(response.level3_commands)} commands, "
                 f"Level4={len(response.level4_commands)} commands"
             )
             self._logger.debug(f"Reasoning: {response.reasoning}")
             self._logger.debug(
+                f"Build commands: {response.build_commands}\n"
                 f"Level1 commands: {response.level1_commands}\n"
                 f"Level2 commands: {response.level2_commands}\n"
                 f"Level3 commands: {response.level3_commands}\n"
@@ -130,6 +143,7 @@ class TestsuiteClassifyNode:
 
 
             state_update = {
+                "testsuite_build_commands": response.build_commands,
                 "testsuite_level1_commands": response.level1_commands,
                 "testsuite_level2_commands": response.level2_commands,
                 "testsuite_level3_commands": response.level3_commands,
@@ -141,6 +155,12 @@ class TestsuiteClassifyNode:
 
             ############# 保存state json文件 #############
             state_for_saving = dict(state)
+            # Save build commands
+            state_for_saving["testsuite_build_commands"] = add_messages(
+                state.get("testsuite_build_commands", []),
+                response.build_commands
+            )
+            # Save level commands
             for level in range(1, 5):
                 key = f"testsuite_level{level}_commands"
                 state_for_saving[key] = add_messages(
@@ -154,6 +174,7 @@ class TestsuiteClassifyNode:
             self._logger.error(f"Error in test classification: {e}")
             # Fallback: if classification fails, be conservative
             return {
+                "testsuite_build_commands": [],
                 "testsuite_level1_commands": [],
                 "testsuite_level2_commands": [],
                 "testsuite_level3_commands": [],

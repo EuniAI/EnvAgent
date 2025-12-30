@@ -155,7 +155,7 @@ class EnvImplementSubgraph:
     ):
         input_state = {
             'query': "",
-            "max_refined_query_loop": 3,
+            "max_refined_query_loop": 5,
             "involved_files": [],  # Initialize empty list for tracking all searched files
             "testsuite_commands": testsuite_commands,
         }

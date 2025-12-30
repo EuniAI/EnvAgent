@@ -9,8 +9,9 @@ from app.utils.logger_manager import get_thread_logger
 class EnvRepairTestExecuteNode:
     """执行 test_command 并返回结果"""
 
-    def __init__(self, container: BaseContainer):
+    def __init__(self, container: BaseContainer, test_mode: str):
         self.container = container
+        self.test_mode = test_mode
         self._logger, _file_handler = get_thread_logger(__name__)
 
     def __call__(self, state: Dict):

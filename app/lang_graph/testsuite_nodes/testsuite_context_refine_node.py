@@ -66,6 +66,7 @@ Original user request:
 
 Command classification results:
 --- BEGIN CLASSIFICATION ---
+Build Commands: {build_commands_str}
 Level 1 (Entry Point - TARGET): {level1_commands_str}
 Level 2 (Integration): {level2_commands_str}
 Level 3 (Smoke - Diagnostic): {level3_commands_str}
@@ -118,6 +119,7 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
         original_query = state.get("query", "Find a quick verification command from docs")
         
         # Get classified commands by level
+        build_commands = state.get("testsuite_build_commands", [])
         level1_commands = state.get("testsuite_level1_commands", [])
         level2_commands = state.get("testsuite_level2_commands", [])
         level3_commands = state.get("testsuite_level3_commands", [])
@@ -130,6 +132,7 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
             return str(cmd)
         
         # Format command strings for each level
+        build_commands_str = "\n".join(extract_content(cmd) for cmd in build_commands) if build_commands else "None"
         level1_commands_str = "\n".join(extract_content(cmd) for cmd in level1_commands) if level1_commands else "None"
         level2_commands_str = "\n".join(extract_content(cmd) for cmd in level2_commands) if level2_commands else "None"
         level3_commands_str = "\n".join(extract_content(cmd) for cmd in level3_commands) if level3_commands else "None"
@@ -141,6 +144,7 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
         return self.REFINE_PROMPT.format(
             file_tree=self.file_tree,
             original_query=original_query,
+            build_commands_str=build_commands_str,
             level1_commands_str=level1_commands_str,
             level2_commands_str=level2_commands_str,
             level3_commands_str=level3_commands_str,

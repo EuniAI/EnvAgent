@@ -1,6 +1,7 @@
 """节点：检查执行结果，决定是否需要继续循环"""
 
 from typing import Dict
+from xxlimited import Str
 
 from app.utils.logger_manager import get_thread_logger
 
@@ -49,7 +50,7 @@ class EnvRepairCheckNode:
 
     """检查 env_implement_result 和 test_result 的状态"""
 
-    def __init__(self, test_mode: str):
+    def __init__(self, test_mode: Str):
         self._logger, _file_handler = get_thread_logger(__name__)
         self.test_mode = test_mode
 
@@ -64,7 +65,7 @@ class EnvRepairCheckNode:
             if isinstance(env_implement_result, dict) and "returncode" in env_implement_result:
                 env_success = 1 if env_implement_result["returncode"] == 0 else -1
 
-        if self.test_mode == "generation":
+        if self.test_mode == "generation" or self.test_mode == "CI/CD":
             if len(test_results) > 0:
                 test_success_list = []
                 for result in test_results:
@@ -82,7 +83,7 @@ class EnvRepairCheckNode:
                 test_success = 1 if all(test_success_list) else -1 # 确保所有测试都成功
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 test
-                self._logger.info("需要运行测试")
+                self._logger.info("Need to run test")
         elif self.test_mode == "pyright":
             # pyright 模式下，test_result 是一个字典（不是列表）
             if isinstance(test_results, dict) and len(test_results) > 0:

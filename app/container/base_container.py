@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import docker  # Docker SDK for Python
+from docker.errors import ImageNotFound
 
 from app.utils.logger_manager import get_thread_logger
 
@@ -49,7 +50,7 @@ class BaseContainer(ABC):
           temp_prefix: Prefix for the temporary directory name. Defaults to "env".
         """
         # Initialize Docker client
-        self.client = docker.from_env()
+        self.client = docker.from_env(timeout=240)
 
         self._logger, _file_handler = get_thread_logger(__name__)
 
@@ -90,6 +91,18 @@ class BaseContainer(ABC):
         host_gid = os.getgid()
 
         dockerfile_content = self.get_dockerfile_content()
+
+        if "USE EXISTING IMAGE" in dockerfile_content:
+            self._logger.info(f"Using existing image {self.tag_name}")
+            try:
+                self.client.images.get(self.tag_name)
+                self._logger.info(f"Image {self.tag_name} found locally")
+                return True
+            except ImageNotFound:
+                # If image not local, attempt to pull; otherwise surface the error
+                self._logger.info(f"Image {self.tag_name} not found locally")
+                return False
+
         dockerfile_path = self.project_path / "Dockerfile"
         dockerfile_path.write_text(dockerfile_content)
         self._logger.info(f"Building docker image {self.tag_name}")
@@ -455,6 +468,38 @@ WORKDIR /app
             self.container.remove(force=True)
 
         self.start_container(use_volume_mapping=use_volume_mapping)
+
+    def save_container_as_image(self, image_name: str, tag: str = "latest") -> str:
+        """Save the current running container as a Docker image with a fixed name.
+
+        Creates a new Docker image from the current container state using docker commit.
+        The image will be tagged with the specified name and tag.
+
+        Args:
+            image_name (str): The name for the saved image (e.g., "my-project-image").
+            tag (str): The tag for the image. Defaults to "latest".
+
+        Returns:
+            str: The full image name with tag (e.g., "my-project-image:latest").
+
+        Raises:
+            RuntimeError: If the container is not running.
+        """
+        if not self.container:
+            raise RuntimeError("Container is not running. Cannot save container as image.")
+
+        full_image_name = f"{image_name}:{tag}"
+        self._logger.info(f"Saving container {self.get_container_short_id()} as image {full_image_name}")
+
+        try:
+            # Commit the container to create a new image
+            image = self.container.commit(repository=image_name, tag=tag)
+            self._logger.info(f"Successfully saved container as image: {full_image_name}")
+            self._logger.info(f"Image ID: {image.id}")
+            return full_image_name
+        except Exception as e:
+            self._logger.error(f"Failed to save container as image: {e}")
+            raise
 
     def cleanup(self):
         """Clean up container resources and temporary files.

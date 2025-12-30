@@ -28,7 +28,13 @@ class GeneralContainer(BaseContainer):
     custom build and test operations.
     """
 
-    def __init__(self, project_path: Path, project_dir: Path, dockerfile_template_path: Optional[Path] = None):
+    def __init__(
+        self,
+        project_path: Path,
+        project_dir: Path,
+        dockerfile_template_path: Optional[Path] = None,
+        docker_image_name: Optional[str] = None,
+    ):
         """Initialize the general container with a unique tag name.
 
         Args:
@@ -36,10 +42,20 @@ class GeneralContainer(BaseContainer):
             dockerfile_template_path (Optional[Path]): Optional path to a Dockerfile template file.
                 If provided, the Dockerfile content will be read from this file instead of using
                 the default hardcoded content. If None, uses the default Dockerfile content.
+            docker_image_name (Optional[str]): Optional existing Docker image name.
+                If provided, the container will use this image directly instead of building
+                from a Dockerfile template. The image name can include a tag in the format
+                'repository:tag' (e.g., 'ubuntu:20.04') or 'registry/repository:tag'.
+                If no tag is specified, Docker will use the 'latest' tag by default.
         """
         super().__init__(project_path, project_dir)
-        self.tag_name = f"prometheus_envagent_container_{uuid.uuid4().hex[:10]}"
+        if docker_image_name:
+            self.tag_name = docker_image_name
+            self.use_existing_image = True
+        else:
+            self.tag_name = f"prometheus_envagent_container_{uuid.uuid4().hex[:10]}"
         self.dockerfile_template_path = dockerfile_template_path
+        self.docker_image_name = docker_image_name
 
     def get_dockerfile_content(self) -> str:
         """Get the Dockerfile content for the general-purpose container.
@@ -61,6 +77,11 @@ class GeneralContainer(BaseContainer):
             IOError: If there's an error reading the Dockerfile template file.
         """
         # If a template path was provided, read from file
+
+        if self.docker_image_name:
+            return f"USE EXISTING IMAGE: {self.docker_image_name}"
+
+
         if self.dockerfile_template_path:
             template_path = Path(self.dockerfile_template_path)
             if not template_path.exists():

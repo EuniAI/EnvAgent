@@ -41,6 +41,7 @@ class TestsuiteState(TypedDict):
     involved_files: Sequence[str]  # Track all files that have been searched to prevent duplicate searches
     
     # Test classification results (commands organized by level)
+    testsuite_build_commands: Annotated[Sequence[str], add_messages]  # Build commands (e.g., mvn build, npm build, cargo build)
     testsuite_level1_commands: Annotated[Sequence[str], add_messages]
     testsuite_level2_commands: Annotated[Sequence[str], add_messages]
     testsuite_level3_commands: Annotated[Sequence[str], add_messages]
@@ -54,6 +55,9 @@ class TestsuiteState(TypedDict):
     testsuite_cicd_workflow_contents: Sequence[dict]  # List of dicts with "relative_path" and "content" keys
     testsuite_cicd_workflow_summaries: dict[str, str]  # LLM-extracted test commands and setup steps
     testsuite_cicd_extracted_commands: Sequence[str]
+    
+    # Pytest test information
+    testsuite_pytest_test_files: Sequence[str]
 
 def pydantic_encoder(obj: Any) -> Any:
     """ 
