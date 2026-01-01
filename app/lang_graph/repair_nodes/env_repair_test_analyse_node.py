@@ -1,4 +1,4 @@
-"""节点：分析 test_result_history 中的错误"""
+"""Node: Analyze errors in test_result_history"""
 
 import functools
 from typing import Dict, List
@@ -14,83 +14,83 @@ from app.utils.logger_manager import get_thread_logger
 
 class ReadFileInput(BaseModel):
     file_path: str = Field(
-        description="文件的路径，可以是绝对路径（如 /app/prometheus_setup.sh）或相对路径"
+        description="The path to the file, which can be an absolute path (e.g., /app/prometheus_setup.sh) or a relative path"
     )
 
 
 READ_FILE_DESCRIPTION = """\
-读取指定路径的文件内容并添加行号。文件路径是容器内的路径（如 /app/prometheus_setup.sh）。
-默认返回前1000行以防止大文件导致上下文过长。
-如果文件不存在，将返回错误消息。
+Read the content of a file at the specified path and add line numbers. The file path is a path within the container (e.g., /app/prometheus_setup.sh).
+By default, returns the first 1000 lines to prevent large files from causing excessive context length.
+If the file does not exist, an error message will be returned.
 """
 
 
 class RepairCommandsOutput(BaseModel):
-    """结构化输出：包含下一步修复指令列表"""
+    """Structured output: Contains the list of next repair commands"""
 
-    error_analysis: str = Field(description="对错误的详细分析")
+    error_analysis: str = Field(description="Detailed analysis of the error")
     repair_commands: List[str] = Field(
-        description="下一步需要执行的具体修复指令列表。每个指令应该是可以直接执行的 shell 命令，使用非交互式标志（如 -y/--yes）。"
+        description="List of specific repair commands to execute next. Each command should be a directly executable shell command using non-interactive flags (e.g., -y/--yes)."
     )
 
 
 class EnvRepairTestAnalyseNode:
-    """分析测试命令执行结果中的错误并生成修复命令"""
+    """Analyze errors in test command execution results and generate repair commands"""
 
     SYS_PROMPT = """\
-你是一个环境修复分析专家。你的任务是分析测试命令执行的历史结果，识别错误原因，并生成具体的修复指令列表。
+You are an environment repair analysis expert. Your task is to analyze the historical results of test command execution, identify the root causes of errors, and generate specific repair command lists.
 
-输入包含：
-- TEST COMMAND HISTORY: 最后3轮的测试命令执行历史和结果
-- CURRENT TEST RESULTS: 当前最新的测试结果
+Input includes:
+- TEST COMMAND HISTORY: The last 3 rounds of test command execution history and results
+- CURRENT TEST RESULTS: The latest current test results
 
-你的任务分为三部分：
+Your task consists of three parts:
 
-第一部分：错误分析
-1. 仔细分析当前测试结果中的错误信息
-2. 识别根本原因（如：模块未找到、命令不存在、缺少共享库、版本冲突、环境配置问题等）
-3. 分析为什么测试失败
-4. 提供详细的错误分析总结
+Part 1: Error Analysis
+1. Carefully analyze the error information in the current test results
+2. Identify root causes (e.g., module not found, command does not exist, missing shared libraries, version conflicts, environment configuration issues, etc.)
+3. Analyze why the test failed
+4. Provide a detailed error analysis summary
 
-第二部分：历史反思
-如果提供了 TEST COMMAND HISTORY（最后3轮历史），你需要：
-1. 对比当前错误与历史轮次中的错误
-2. 判断当前错误是否与历史错误相同或相似
-3. 如果错误一直出现（重复了多轮），说明之前的修复策略可能无效
-4. 在这种情况下，你需要：
-   - 反思为什么之前的修复方式没有成功
-   - 考虑采用完全不同的解决思路（例如：如果之前尝试用 apt-get 安装失败，可以考虑从源码编译、使用不同的包管理器、修改环境变量、或者采用容器化方案等）
-   - 避免重复使用已经失败的方法
-   - 尝试创新的、不同的解决路径
+Part 2: Historical Reflection
+If TEST COMMAND HISTORY (last 3 rounds) is provided, you need to:
+1. Compare the current error with errors from historical rounds
+2. Determine if the current error is the same or similar to historical errors
+3. If the error keeps appearing (repeated for multiple rounds), it indicates that previous repair strategies may be ineffective
+4. In this case, you need to:
+   - Reflect on why previous repair methods did not succeed
+   - Consider completely different solution approaches (e.g., if apt-get installation failed before, consider compiling from source, using different package managers, modifying environment variables, or adopting containerization solutions, etc.)
+   - Avoid repeating methods that have already failed
+   - Try innovative, different solution paths
 
-第三部分：生成修复指令列表
-根据错误分析和历史反思，生成一个修复指令列表。要求：
-1. 如果发现错误重复出现，必须采用与历史不同的修复策略
-2. 生成多个具体的修复指令，按照执行顺序排列
-3. 每个指令应该是可以直接执行的 shell 命令
-4. 使用非交互式标志（如 -y/--yes）
-5. 选择合适的包管理器或工具：
-   - 系统包：apt-get/yum/apk + 需要时运行 apt-get update
-   - Python: pip/uv/conda；优先使用错误中提示的确切包名
-   - Node.js: npm/yarn/pnpm；安装缺失的包或运行时（需要时使用 nvm）
-   - 其他：cargo/go/gem/composer；或创建链接/导出变量如果是路径问题
-6. 优先选择幂等且安全的命令
-7. 如果只需要一个步骤，列表中可以只有一个指令
-8. 如果多个步骤可以合并为一个命令（使用 && 连接），可以合并为一个指令
-9. 当错误重复出现时，优先考虑替代方案而不是重复相同的方法
+Part 3: Generate Repair Command List
+Based on error analysis and historical reflection, generate a repair command list. Requirements:
+1. If errors are found to repeat, must adopt a repair strategy different from history
+2. Generate multiple specific repair commands, arranged in execution order
+3. Each command should be a directly executable shell command
+4. Use non-interactive flags (e.g., -y/--yes)
+5. Choose appropriate package managers or tools:
+   - System packages: apt-get/yum/apk + run apt-get update when needed
+   - Python: pip/uv/conda; prioritize using the exact package name indicated in the error
+   - Node.js: npm/yarn/pnpm; install missing packages or runtimes (use nvm when needed)
+   - Others: cargo/go/gem/composer; or create links/export variables if it's a path issue
+6. Prioritize idempotent and safe commands
+7. If only one step is needed, the list can contain only one command
+8. If multiple steps can be combined into one command (using &&), they can be merged into one command
+9. When errors repeat, prioritize alternative solutions rather than repeating the same method
 
-输出要求：
-- error_analysis: 详细的错误分析文本（如果错误重复出现，必须包含对历史失败的反思和采用新策略的理由）
-- repair_commands: 修复指令列表，每个指令都是可以直接执行的 shell 命令字符串，不要包含代码框标记、引号或其他解释性文字
+Output requirements:
+- error_analysis: Detailed error analysis text (if errors repeat, must include reflection on historical failures and reasons for adopting new strategies)
+- repair_commands: Repair command list, each command is a directly executable shell command string, do not include code block markers, quotes, or other explanatory text
 
-重要：每个修复指令必须是完整的、可以直接执行的 shell 命令。如果错误重复出现，必须采用与历史不同的修复策略。
+Important: Each repair command must be complete and directly executable as a shell command. If errors repeat, must adopt a repair strategy different from history.
 """
 
     def __init__(self, model: BaseChatModel, container: BaseContainer):
         self.container = container
         self._logger, _file_handler = get_thread_logger(__name__)
 
-        # 使用结构化输出
+        # Use structured output
         prompt_template = ChatPromptTemplate.from_messages(
             [("system", self.SYS_PROMPT), ("human", "{prompt}")]
         )
@@ -99,14 +99,14 @@ class EnvRepairTestAnalyseNode:
 
     def _init_tools(self):
         """
-        初始化文件读取工具。
+        Initialize file reading tools.
 
         Returns:
           List of StructuredTool instances configured for file reading.
         """
         tools = []
 
-        # Tool: 读取容器中的文件内容
+        # Tool: Read file content from container
         read_file_fn = functools.partial(self._read_file_from_container)
         read_file_tool = StructuredTool.from_function(
             func=read_file_fn,
@@ -119,54 +119,78 @@ class EnvRepairTestAnalyseNode:
 
         return tools
 
+    def _truncate_stdout(self, stdout: str, max_chars: int = 1000) -> str:
+        """
+        Truncate stdout to the last max_chars characters to keep error information.
+        
+        Args:
+            stdout: The stdout string to truncate
+            max_chars: Maximum number of characters to keep (default: 1000)
+        
+        Returns:
+            Truncated stdout string (last max_chars characters)
+        """
+        if not stdout:
+            return ""
+        if len(stdout) <= max_chars:
+            return stdout
+        return stdout[-max_chars:]
+
     def __call__(self, state: Dict):
-        test_command = state.get("test_command", [])
-        test_result = state.get("test_result", [])
+        test_command = state.get("test_commands", [])
+        # Use test_results (plural) to match state definition and execute_node return
+        test_result = state.get("test_results", {})
         test_command_result_history = state.get("test_command_result_history", [])
 
-        self._logger.info("分析测试执行结果...")
+        self._logger.info("Analyzing test execution results...")
 
-        # 获取最后3轮的历史信息（如果存在）
+        # Get the last 3 rounds of history (if exists), excluding the current round
         previous_rounds_text = ""
         if len(test_command_result_history) > 0:
-            # 获取最后3个历史项（包含当前轮，所以取最后3个）
-            start_idx = max(0, len(test_command_result_history) - 3)
-            end_idx = len(test_command_result_history)
+            # Exclude the last entry if it corresponds to the current round
+            # Get the last 3 historical items (excluding current round if it exists)
+            history_end = len(test_command_result_history)
+            # If test_result exists, the last entry in history is likely the current round
+            if test_result:
+                history_end = len(test_command_result_history) - 1
+            
+            start_idx = max(0, history_end - 3)
+            end_idx = history_end
 
             if end_idx > start_idx:
                 previous_rounds = test_command_result_history[start_idx:end_idx]
                 previous_rounds_parts = []
 
                 for idx, history_item in enumerate(previous_rounds):
-                    # round_num 是实际在历史中的索引位置（从0开始计数）
+                    # round_num is the actual index position in history (0-based)
                     round_num = start_idx + idx
                     history_command = history_item.get("command", [])
                     history_result = history_item.get("result", [])
                     history_analysis = history_item.get("analysis", "")
 
-                    # 格式化历史命令（可能是列表）
+                    # Format history command (may be a list)
                     command_str = ""
                     if isinstance(history_command, list):
                         command_str = "\n".join([str(cmd) for cmd in history_command])
                     else:
                         command_str = str(history_command)
 
-                    # 格式化历史结果（可能是列表，每个结果包含多个测试命令的结果）
+                    # Format history result (may be a list, each result contains results from multiple test commands)
                     result_str_parts = []
                     if isinstance(history_result, list):
                         for res_idx, res in enumerate(history_result):
+                            stdout = self._truncate_stdout(res.get("stdout", ""))
                             result_str_parts.append(f"""
                             Test {res_idx + 1}:
                               Command: {res.get("command", "N/A")}
                               Exit Code: {res.get("returncode", "N/A")}
-                              Stdout: {res.get("stdout", "")}
-                              Stderr: {res.get("stderr", "")}
+                              Stdout: {stdout}
                             """)
                     else:
+                        stdout = self._truncate_stdout(history_result.get("stdout", ""))
                         result_str_parts.append(f"""
                         Exit Code: {history_result.get("returncode", "N/A")}
-                        Stdout: {history_result.get("stdout", "")}
-                        Stderr: {history_result.get("stderr", "")}
+                        Stdout: {stdout}
                         """)
 
                     round_text = f"""
@@ -189,30 +213,39 @@ class EnvRepairTestAnalyseNode:
                     """
                     previous_rounds_text += "\n".join(previous_rounds_parts)
 
-        # 格式化当前测试结果
+        # Format current test result
         current_test_result_text = ""
-        if isinstance(test_result, list) and len(test_result) > 0:
+        # Handle test_result which can be a dict (from execute_node) or list
+        if isinstance(test_result, dict):
+            # Single test result as dict
+            stdout = self._truncate_stdout(test_result.get("stdout", ""))
+            current_test_result_text = f"""
+            Command: {test_result.get("command", "N/A")}
+            Exit Code: {test_result.get("returncode", "N/A")}
+            Stdout: {stdout}
+            """
+        elif isinstance(test_result, list) and len(test_result) > 0:
             result_parts = []
             for idx, res in enumerate(test_result):
+                stdout = self._truncate_stdout(res.get("stdout", ""))
                 result_parts.append(f"""
-                Test {idx + 1}:
-                  Command: {res.get("command", "N/A")}
-                  Exit Code: {res.get("returncode", "N/A")}
-                  Stdout: {res.get("stdout", "")}
-                  Stderr: {res.get("stderr", "")}
-                """)
+            Test {idx + 1}:
+              Command: {res.get("command", "N/A")}
+              Exit Code: {res.get("returncode", "N/A")}
+              Stdout: {stdout}
+            """)
             current_test_result_text = "\n".join(result_parts)
         else:
             current_test_result_text = str(test_result)
 
-        # 格式化当前测试命令
+        # Format current test command
         current_test_command_text = ""
         if isinstance(test_command, list):
             current_test_command_text = "\n".join([str(cmd) for cmd in test_command])
         else:
             current_test_command_text = str(test_command)
 
-        # 组织查询（显示最新结果，包含最后3轮历史）
+        # Organize query (show latest results, including last 3 rounds of history)
         context_query = """
             <context>
             CURRENT TEST COMMAND:
@@ -230,7 +263,7 @@ class EnvRepairTestAnalyseNode:
             ```
             """
 
-        # 如果有历史信息，添加到context中
+        # If history information exists, add it to context
         if previous_rounds_text:
             context_query += previous_rounds_text
 
@@ -239,27 +272,27 @@ class EnvRepairTestAnalyseNode:
 
             """
 
-        # 分析错误并生成修复指令列表
+        # Analyze errors and generate repair command list
         prompt_text = (
             context_query
-            + "\n请分析上述测试命令执行失败的原因。如果提供了历史轮次信息，请对比当前错误与历史错误。如果发现错误重复出现，请反思之前的修复策略为何无效，并采用完全不同的新策略来解决。最后根据分析结果生成修复指令列表。"
+            + "\nPlease analyze the reasons for the test command execution failure above. If historical round information is provided, compare the current error with historical errors. If errors are found to repeat, reflect on why previous repair strategies were ineffective and adopt a completely different new strategy to resolve them. Finally, generate a repair command list based on the analysis results."
         )
 
-        # 使用结构化输出模型
+        # Use structured output model
         response = self.model.invoke({"prompt": prompt_text})
-        self._logger.debug(f"模型响应: {response}")
+        self._logger.debug(f"Model response: {response}")
 
-        # 提取指令列表
+        # Extract command list
         repair_commands = response.repair_commands if hasattr(response, "repair_commands") else []
         error_analysis_text = response.error_analysis if hasattr(response, "error_analysis") else ""
 
-        self._logger.info(f"错误分析: {error_analysis_text}")
-        self._logger.info(f"修复指令列表: {repair_commands}")
+        self._logger.info(f"Error analysis: {error_analysis_text}")
+        self._logger.info(f"Repair command list: {repair_commands}")
 
-        # 将修复指令列表转换为字符串列表（根据状态定义，env_repair_command 是 Sequence[str]）
+        # Convert repair command list to string list (according to state definition, env_repair_command is Sequence[str])
         repair_command_contexts = [cmd.strip() for cmd in repair_commands if cmd.strip()]
 
-        # 更新 test_command_result_history 中最后一个条目的 analysis
+        # Update the analysis field of the last entry in test_command_result_history
         test_command_result_history = state.get("test_command_result_history", [])
         if len(test_command_result_history) > 0:
             current_test_history = test_command_result_history[-1].copy()
@@ -270,4 +303,5 @@ class EnvRepairTestAnalyseNode:
             "env_error_analysis": error_analysis_text,
             "env_repair_command": repair_command_contexts,
             "test_command_result_history": test_command_result_history,
+            "test_result": {},  # Clear test_results because current round has completed execution and needs to be re-executed
         }

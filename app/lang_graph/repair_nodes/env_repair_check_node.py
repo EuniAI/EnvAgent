@@ -57,6 +57,7 @@ class EnvRepairCheckNode:
     def __call__(self, state: Dict):
         env_implement_result = state.get("env_implement_result", {})
         test_results = state.get("test_result", [])
+        test_keep_selecting = state.get("test_keep_selecting", False)
         # 检查 env_implement_result 是否成功
         # success 0（未运行）1（成功）-1（失败）
         env_success = 0
@@ -65,7 +66,17 @@ class EnvRepairCheckNode:
             if isinstance(env_implement_result, dict) and "returncode" in env_implement_result:
                 env_success = 1 if env_implement_result["returncode"] == 0 else -1
 
-        if self.test_mode == "generation" or self.test_mode == "CI/CD":
+        if self.test_mode == "generation":
+            if len(test_results) > 0:
+                if test_keep_selecting:
+                    test_success = 1
+                else:
+                    test_success = -1
+                # test_success = 1 if test_results["returncode"] == 0 else -1  # generation 模式下，test_result 只是一个命令的结果
+            elif len(test_results) == 0:
+                # 如果没有 test_result，需要先运行 test
+                self._logger.info("Need to run test")
+        elif self.test_mode == "CI/CD":
             if len(test_results) > 0:
                 test_success_list = []
                 for result in test_results:

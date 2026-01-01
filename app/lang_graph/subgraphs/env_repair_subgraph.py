@@ -79,7 +79,7 @@ class EnvRepairSubgraph:
                     base_mapping["case3"] = "execute_pyright"
                     base_mapping["case4"] = "analyse_pyright_error"  # pyright 模式下，case4（检查失败）应该分析pyright错误
                 else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
-                    base_mapping["case3"] = "execute_test"
+                    base_mapping["case3"] = "test_select_command"
                     base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
                 
                 return base_mapping
@@ -188,6 +188,7 @@ class EnvRepairSubgraph:
                 #     "update_command", env_repair_update_command_node
                 # )  # 更新测试命令
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                workflow.add_node("test_select_command", env_repair_test_select_command_node)  # 选择测试命令
                 workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
                 workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
                 # workflow.add_node(
@@ -232,9 +233,9 @@ class EnvRepairSubgraph:
                 # workflow.add_edge("update_command", "execute_env")
                 # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                workflow.add_edge("test_select_command", "execute_test")
                 workflow.add_edge("execute_test", "check_status")
                 workflow.add_edge("analyse_test_error", "update_command")
-                # workflow.add_edge("update_test_command", "execute_test")
 
             # 检查状态后，决定是否继续循环
             workflow.add_conditional_edges(

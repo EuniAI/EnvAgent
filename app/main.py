@@ -261,13 +261,13 @@ def reproduce_test(
             ) as f:
                 testsuite_commands_level = json.load(f)
                 testsuite_commands_level = {
-                    "build_commands": list(set(testsuite_commands_level.get("build_commands", []))),
-                    "level1_commands": list(set(testsuite_commands_level.get("level1_commands", []))),
-                    "level2_commands": list(set(testsuite_commands_level.get("level2_commands", []))),
-                    "level3_commands": list(set(testsuite_commands_level.get("level3_commands", []))),
-                    "level4_commands": list(set(testsuite_commands_level.get("level4_commands", []))),
+                    "build_commands": list(set(testsuite_commands_level.get("testsuite_build_commands", []))),
+                    "level1_commands": list(set(testsuite_commands_level.get("testsuite_level1_commands", []))),
+                    "level2_commands": list(set(testsuite_commands_level.get("testsuite_level2_commands", []))),
+                    "level3_commands": list(set(testsuite_commands_level.get("testsuite_level3_commands", []))),
+                    "level4_commands": list(set(testsuite_commands_level.get("testsuite_level4_commands", []))),
                 }
-                testsuite_commands = [command for level in testsuite_commands_level.values() for command in level]
+                testsuite_commands = testsuite_commands_level #[command for level in testsuite_commands_level.values() for command in level]
         except Exception as e:
             # logger.debug(f"Error in testsuite commands: {str(e)}\n{traceback.format_exc()}")
             testsuite_commands = None
@@ -296,7 +296,7 @@ def reproduce_test(
             "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
             "file_content": env_setup_bash,
         }
-        doc["test_command"] = testsuite_commands
+        doc["test_commands"] = testsuite_commands
 
         try:
             env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
