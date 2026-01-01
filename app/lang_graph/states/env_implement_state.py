@@ -55,6 +55,7 @@ class EnvImplementState(TypedDict):
     env_command_result_history: Sequence[Dict[str, Any]]  # 所有env_command以及其运行的结果 包含（env_implement_command（文件路径、文件内容），env_implement_result（退出码、标准输出、标准错误）, analysis（错误分析））
 
     test_commands: Dict[str, Any]  # 查找得到的testsuite
+    test_command_adjust_messages: Annotated[Sequence[BaseMessage], add_messages]  # Messages for test command adjustment tool execution
     selected_test_command:str  # 选中的testsuite命令
     selected_level:str  # 选中的testsuite命令的等级
     test_result: Dict[str, Any]  # 运行testsuite的结果 ()

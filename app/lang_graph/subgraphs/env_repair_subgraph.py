@@ -12,6 +12,7 @@ from app.graph.knowledge_graph import KnowledgeGraph
 from app.lang_graph.repair_nodes.env_repair_analyse_node import EnvRepairAnalyseNode
 from app.lang_graph.repair_nodes.env_repair_check_node import EnvRepairCheckNode, router_function
 from app.lang_graph.repair_nodes.env_repair_execute_node import EnvRepairExecuteNode
+from app.lang_graph.repair_nodes.env_repair_test_adjust_node import EnvRepairTestCommandAdjustNode
 from app.lang_graph.repair_nodes.env_repair_test_analyse_node import EnvRepairTestAnalyseNode
 from app.lang_graph.repair_nodes.env_repair_test_select_command_node import EnvRepairTestSelectCommandNode
 from app.lang_graph.repair_nodes.env_repair_test_execute_node import EnvRepairTestExecuteNode
@@ -98,6 +99,12 @@ class EnvRepairSubgraph:
             messages_key="env_implement_command_messages",
         )
 
+        env_repair_test_command_adjust_node = EnvRepairTestCommandAdjustNode(advanced_model, container)
+        env_repair_test_command_adjust_web_search_tool_node = ToolNode(
+            tools=env_repair_test_command_adjust_node.tools,
+            name="env_repair_test_command_adjust_web_search_tool_node",
+            messages_key="test_command_adjust_messages",
+        )
         env_repair_test_select_command_node = EnvRepairTestSelectCommandNode(advanced_model, container)
         env_repair_test_execute_node = EnvRepairTestExecuteNode(container, test_mode)
         env_repair_test_analyse_node = EnvRepairTestAnalyseNode(advanced_model, container)
@@ -131,7 +138,7 @@ class EnvRepairSubgraph:
             # 主路由：根据当前状态决定下一步
             workflow.add_conditional_edges(
                 "router",
-                router_function,
+                functools.partial(router_function, test_mode=test_mode),
                 create_router_mapping(),
             )
 
@@ -188,6 +195,8 @@ class EnvRepairSubgraph:
                 #     "update_command", env_repair_update_command_node
                 # )  # 更新测试命令
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                # workflow.add_node("test_command_adjust_web_search_tool", env_repair_test_command_adjust_web_search_tool_node)  # 调整测试命令
+                workflow.add_node("test_command_adjust_node", env_repair_test_command_adjust_node)  # 调整测试命令
                 workflow.add_node("test_select_command", env_repair_test_select_command_node)  # 选择测试命令
                 workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
                 workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
@@ -198,13 +207,24 @@ class EnvRepairSubgraph:
 
 
             # 设置入口点
-            workflow.set_entry_point("check_status")
+            # 对test 根据 hierarchy 进行进一步分类、过滤和补充
+            workflow.set_entry_point("test_command_adjust_node")
+            # workflow.add_conditional_edges(
+            #     "test_command_adjust_node",
+            #     functools.partial(tools_condition, messages_key="test_command_adjust_messages"),
+            #     {
+            #         "tools": "test_command_adjust_web_search_tool",
+            #         END: "check_status",
+            #     },
+            # )
+            # workflow.add_edge("test_command_adjust_web_search_tool", "test_command_adjust_node")
+            workflow.add_edge("test_command_adjust_node", "check_status")
             workflow.add_edge("check_status", "router")
 
             # 主路由：根据当前状态决定下一步
             workflow.add_conditional_edges(
                 "router",
-                router_function,
+                functools.partial(router_function, test_mode=test_mode),
                 create_router_mapping(),
             )
 
@@ -233,6 +253,7 @@ class EnvRepairSubgraph:
                 # workflow.add_edge("update_command", "execute_env")
                 # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                # workflow.add_edge("test_command_adjust_node", "test_select_command")  # 调整测试命令后选择测试命令
                 workflow.add_edge("test_select_command", "execute_test")
                 workflow.add_edge("execute_test", "check_status")
                 workflow.add_edge("analyse_test_error", "update_command")

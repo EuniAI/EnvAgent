@@ -6,7 +6,7 @@ from xxlimited import Str
 from app.utils.logger_manager import get_thread_logger
 
 
-def router_function(state: Dict) -> str:
+def router_function(state: Dict, test_mode: Str) -> str:
     _logger, _file_handler = get_thread_logger(__name__)
     """路由器函数：根据 check_state 决定流程"""
     check_state = state.get("check_state", {})
@@ -26,21 +26,32 @@ def router_function(state: Dict) -> str:
             _logger.info("case2: env_success == -1, env failed, need to analyse error")
             return "case2"
 
-        # 情况3：环境成功，但还没有运行测试
-        if env_success == 1 and test_success == 0:
-            _logger.info("case3: env_success == 1 and test_success == 0, env success, but not run test")
-            return "case3"
+        if test_mode == "generation":
+            if env_success == 1 and test_success == 1:  # 成功并全部结束
+                _logger.info("all success")
+                return "success"
+            elif env_success == 1 and (test_success == 2 or test_success == 0):  # 切换level 或 还没执行测试
+                _logger.info(f"case3: env_success == 1 and test_success == {test_success}, switch level or not run test (0: not run test, 2: switch level)")
+                return "case3"
+            elif env_success == 1 and test_success == -1:  # 执行失败
+                _logger.info("case4: env_success == 1 and test_success == -1, test failed")
+                return "case4"
+        else:
+            # 情况3：环境成功，但还没有运行测试
+            if env_success == 1 and test_success == 0:
+                _logger.info("case3: env_success == 1 and test_success == 0, env success, but not run test")
+                return "case3"
 
-        # 情况4：环境成功但测试失败
-        if env_success == 1 and test_success == -1:
-            _logger.info("case4: env_success == 1 and test_success == -1, env success, but test failed")
-            return "case4"
+            # 情况4：环境成功但测试失败
+            if env_success == 1 and test_success == -1:
+                _logger.info("case4: env_success == 1 and test_success == -1, env success, but test failed")
+                return "case4"
 
-        # todo 是否会出现，环境首次成功，但是二次运行后失败的情况？
+            # todo 是否会出现，环境首次成功，但是二次运行后失败的情况？
 
-        # 默认情况：都成功
-        _logger.info("default case: all success")
-        return "success"
+            # 默认情况：都成功
+            _logger.info("default case: all success")
+            return "success"
     else:
         raise ValueError("check_state is not found")
 
@@ -57,7 +68,7 @@ class EnvRepairCheckNode:
     def __call__(self, state: Dict):
         env_implement_result = state.get("env_implement_result", {})
         test_results = state.get("test_result", [])
-        test_keep_selecting = state.get("test_keep_selecting", False)
+        
         # 检查 env_implement_result 是否成功
         # success 0（未运行）1（成功）-1（失败）
         env_success = 0
@@ -68,10 +79,7 @@ class EnvRepairCheckNode:
 
         if self.test_mode == "generation":
             if len(test_results) > 0:
-                if test_keep_selecting:
-                    test_success = 1
-                else:
-                    test_success = -1
+                test_success = state.get("test_keep_selecting", -1) # 1 成功并全部结束，-1 执行失败，2 切换level
                 # test_success = 1 if test_results["returncode"] == 0 else -1  # generation 模式下，test_result 只是一个命令的结果
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 test
@@ -116,7 +124,7 @@ class EnvRepairCheckNode:
         if env_success == 1:
             if test_success == 1:
                 should_continue = False
-            elif test_success == -1 or test_success == 0:
+            else:
                 should_continue = True
         
         check_state = {

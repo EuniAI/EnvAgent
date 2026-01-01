@@ -20,16 +20,16 @@ class EnvRepairTestExecuteNode:
 
         # 判断 test_command 是列表，逐个执行每个命令
 
-        test_output = self.container.execute_command_with_exit_code(selected_test_command)
+        test_output = self.container.execute_command_with_exit_code(selected_test_command, timeout=60 * 30) # 30分钟
 
         self._logger.info(f"命令 {selected_test_command} 执行完成，退出码: {test_output.returncode}")
 
             # 将测试结果转换为字典
         new_test_results = {
             "command": selected_test_command,  # 记录执行的命令
+            "level": selected_level,
             "returncode": test_output.returncode,
             "stdout": test_output.stdout,
-            "stderr": test_output.stderr,
         }
         test_command_result_history = state.get("test_command_result_history", []) + [
             {
@@ -40,10 +40,20 @@ class EnvRepairTestExecuteNode:
         ]
 
         # 判断是否需要继续进入 select node
-        test_keep_selecting_flag = False
-        if selected_level in ["level1", "level2"] and test_output.returncode != 0:
-            test_keep_selecting_flag = True
-        self._logger.info(f"test_keep_selecting_flag: {test_keep_selecting_flag}")
+        # 1 成功并全部结束，-1 执行失败，2 切换level
+        _test_keep_selecting_flag = {
+            1: 'success and all finished',
+            -1: 'execution failed',
+            2: 'switch level',
+        }
+        if test_output.returncode != 0:
+            test_keep_selecting_flag = -1 # 执行失败
+        else:
+            if selected_level in ["level1", "level2"]:
+                test_keep_selecting_flag = 1 # 成功并全部结束
+            else:
+                test_keep_selecting_flag = 2 # 切换level
+        self._logger.info(f"test_keep_selecting_flag: {_test_keep_selecting_flag.get(test_keep_selecting_flag, 'unknown')}")
 
         return {
             "test_result": new_test_results, 
