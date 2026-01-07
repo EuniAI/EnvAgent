@@ -36,7 +36,7 @@ def router_function(state: Dict, test_mode: Str) -> str:
             elif env_success == 1 and test_success == -1:  # 执行失败
                 _logger.info("case4: env_success == 1 and test_success == -1, test failed")
                 return "case4"
-        else:
+        else: ## test_mode 为 "pytest"或者 pyright
             # 情况3：环境成功，但还没有运行测试
             if env_success == 1 and test_success == 0:
                 _logger.info("case3: env_success == 1 and test_success == 0, env success, but not run test")
@@ -117,6 +117,19 @@ class EnvRepairCheckNode:
                     test_success = 0
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 pyright 检查
+                pass
+        elif self.test_mode == "pytest":
+            if isinstance(test_results, dict) and len(test_results) > 0:
+                returncode = test_results.get("returncode", 1)
+                issues_count = test_results.get("issues_count", -1)
+                if issues_count == 0 and returncode == 0: # 成功
+                    test_success = 1
+                elif issues_count > 0 or returncode != 0: # 失败
+                    test_success = -1
+                else: # 未运行
+                    test_success = 0
+            elif len(test_results) == 0:
+                # 如果没有 test_result，需要先运行 pytest 检查
                 pass
         
         # 判断是否完成

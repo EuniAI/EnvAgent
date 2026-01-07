@@ -19,6 +19,8 @@ from app.lang_graph.repair_nodes.env_repair_test_execute_node import EnvRepairTe
 # from app.lang_graph.repair_nodes.env_repair_test_update_command_node import EnvRepairTestUpdateCommandNode
 from app.lang_graph.repair_nodes.env_repair_pyright_execute_node import EnvRepairPyrightExecuteNode
 from app.lang_graph.repair_nodes.env_repair_pyright_analyse_node import EnvRepairPyrightAnalyseNode
+from app.lang_graph.repair_nodes.env_repair_pytest_execute_node import EnvRepairPytestExecuteNode
+from app.lang_graph.repair_nodes.env_repair_pytest_analyse_node import EnvRepairPytestAnalyseNode
 from app.lang_graph.repair_nodes.env_repair_update_command_node import EnvRepairUpdateCommandNode
 from app.lang_graph.states.env_implement_state import EnvImplementState
 from app.utils.logger_manager import get_thread_logger
@@ -79,7 +81,10 @@ class EnvRepairSubgraph:
                 if test_mode == "pyright":
                     base_mapping["case3"] = "execute_pyright"
                     base_mapping["case4"] = "analyse_pyright_error"  # pyright 模式下，case4（检查失败）应该分析pyright错误
-                else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                elif test_mode == "pytest":
+                    base_mapping["case3"] = "execute_pytest"
+                    base_mapping["case4"] = "analyse_pytest_error" # pytest 模式下，case4（测试失败）应该分析测试错误
+                elif test_mode == "generation":  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
                     base_mapping["case3"] = "test_select_command"
                     base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
                 
@@ -109,8 +114,14 @@ class EnvRepairSubgraph:
         env_repair_test_execute_node = EnvRepairTestExecuteNode(container, test_mode)
         env_repair_test_analyse_node = EnvRepairTestAnalyseNode(advanced_model, container)
         # env_repair_test_update_command_node = EnvRepairTestUpdateCommandNode(advanced_model, container, container.project_path)
+
+        # pyright 模式
         env_repair_pyright_execute_node = EnvRepairPyrightExecuteNode(container)
         env_repair_pyright_analyse_node = EnvRepairPyrightAnalyseNode(advanced_model, container)
+
+
+        env_repair_pytest_execute_node = EnvRepairPytestExecuteNode(container)
+        env_repair_pytest_analyse_node = EnvRepairPytestAnalyseNode(advanced_model, container)
 
 
         if repair_only_run_env_execute:
@@ -194,6 +205,9 @@ class EnvRepairSubgraph:
                 # workflow.add_node(
                 #     "update_command", env_repair_update_command_node
                 # )  # 更新测试命令
+            if test_mode == "pytest":
+                workflow.add_node("execute_pytest", env_repair_pytest_execute_node)  # 执行pytest
+                workflow.add_node("analyse_pytest_error", env_repair_pytest_analyse_node)  # 分析pytest错误
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
                 # workflow.add_node("test_command_adjust_web_search_tool", env_repair_test_command_adjust_web_search_tool_node)  # 调整测试命令
                 workflow.add_node("test_command_adjust_node", env_repair_test_command_adjust_node)  # 调整测试命令
@@ -208,7 +222,8 @@ class EnvRepairSubgraph:
 
             # 设置入口点
             # 对test 根据 hierarchy 进行进一步分类、过滤和补充
-            workflow.set_entry_point("test_command_adjust_node")
+            if test_mode == "generation":
+                workflow.set_entry_point("test_command_adjust_node")
             # workflow.add_conditional_edges(
             #     "test_command_adjust_node",
             #     functools.partial(tools_condition, messages_key="test_command_adjust_messages"),
@@ -218,8 +233,11 @@ class EnvRepairSubgraph:
             #     },
             # )
             # workflow.add_edge("test_command_adjust_web_search_tool", "test_command_adjust_node")
-            workflow.add_edge("test_command_adjust_node", "check_status")
-            workflow.add_edge("check_status", "router")
+                workflow.add_edge("test_command_adjust_node", "check_status")
+                workflow.add_edge("check_status", "router")
+            elif test_mode == "pytest" or test_mode == "pyright":
+                workflow.set_entry_point("check_status")
+                workflow.add_edge("check_status", "router")
 
             # 主路由：根据当前状态决定下一步
             workflow.add_conditional_edges(
@@ -252,6 +270,9 @@ class EnvRepairSubgraph:
                 workflow.add_edge("analyse_pyright_error", "update_command")
                 # workflow.add_edge("update_command", "execute_env")
                 # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
+            elif test_mode == "pytest":
+                workflow.add_edge("execute_pytest", "check_status")
+                workflow.add_edge("analyse_pytest_error", "update_command")
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
                 # workflow.add_edge("test_command_adjust_node", "test_select_command")  # 调整测试命令后选择测试命令
                 workflow.add_edge("test_select_command", "execute_test")

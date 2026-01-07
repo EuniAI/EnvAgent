@@ -28,7 +28,7 @@ logger, file_handler = get_thread_logger(__name__)
 debug_mode = True
 repair_only_run_env_execute = False
 repair_only_run_test_execute = True
-test_mode = "generation"  # generation pyright pytest CI/CD
+test_mode = "pytest"  # generation pyright pytest CI/CD
 
 
 def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
@@ -299,7 +299,7 @@ def reproduce_test(
         doc["test_commands"] = testsuite_commands
 
         try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT if test_mode == "generation" else 100)
         except Exception as e:
             logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
             return (

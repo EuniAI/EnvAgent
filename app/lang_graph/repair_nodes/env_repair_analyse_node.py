@@ -142,6 +142,23 @@ Special Attention to Virtual Environment Activation:
 
         return tools
 
+    def _truncate_stdout(self, stdout: str, max_chars: int = 1000) -> str:
+        """
+        Truncate stdout to the last max_chars characters to keep error information.
+        
+        Args:
+            stdout: The stdout string to truncate
+            max_chars: Maximum number of characters to keep (default: 1000)
+        
+        Returns:
+            Truncated stdout string (last max_chars characters)
+        """
+        if not stdout:
+            return ""
+        if len(stdout) <= max_chars:
+            return stdout
+        return stdout[-max_chars:]
+
     def __call__(self, state: Dict):
         messages = state.get("env_implement_command_messages", [])
         env_implement_command = extract_command_from_messages(messages, state)
@@ -154,8 +171,8 @@ Special Attention to Virtual Environment Activation:
         str_env_implement_command = env_implement_command.get("file_content", "")
 
         # Get the latest results (the last one)
-        latest_env_result = env_implement_result
-        latest_test_result = test_result
+        latest_env_result = self._truncate_stdout(env_implement_result.get("stdout", ""), max_chars=1500)
+        latest_test_result = self._truncate_stdout(test_result.get("stdout", ""))
 
         self._logger.info("Analyzing environment execution results...")
 
@@ -177,13 +194,13 @@ Special Attention to Virtual Environment Activation:
                     history_command = history_item.get("command", {})
                     history_result = history_item.get("result", {})
                     history_analysis = history_item.get("analysis", "")
+                    stdout = self._truncate_stdout(history_result.get("stdout", ""))
 
                     round_text = f"""
                     Round {round_num}:
                     Command: {history_command.get("file_content", "N/A")}
                     Exit Code: {history_result.get("returncode", "N/A")}
-                    Stdout: {history_result.get("stdout", "")}
-                    Stderr: {history_result.get("stderr", "")}
+                    Stdout: {stdout}
                     """
                     if history_analysis:
                         round_text += f"  Previous Analysis: {history_analysis}\n"
