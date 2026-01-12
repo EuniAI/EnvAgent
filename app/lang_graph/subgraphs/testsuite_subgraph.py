@@ -135,7 +135,7 @@ class TestsuiteSubgraph:
             # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
 
             # Step 6: Refine the query if needed and loop back
-            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, self.local_path)
+            testsuite_context_refine_node = TestsuiteContextRefineNode(model, kg, self.local_path, easy_mode=True)
 
             testsuite_classify_node = TestsuiteClassifyNode(model, self.local_path)
             # testsuite_sequence_node = TestsuiteSequenceNode(model, local_path)
@@ -194,7 +194,7 @@ class TestsuiteSubgraph:
                 - "context" (Sequence[Context]): A list of selected context snippets relevant to the query.
         """
         # Set the recursion limit based on the maximum number of refined query loops
-        config = {"recursion_limit": max_refined_query_loop * 50}
+        config = {"recursion_limit": max_refined_query_loop * 40}
 
         input_state = {
             "testsuite_max_refined_query_loop": max_refined_query_loop,

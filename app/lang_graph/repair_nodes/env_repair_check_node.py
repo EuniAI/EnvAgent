@@ -3,6 +3,8 @@
 from typing import Dict
 from xxlimited import Str
 
+from langchain_core.runnables import passthrough
+
 from app.utils.logger_manager import get_thread_logger
 
 
@@ -36,7 +38,7 @@ def router_function(state: Dict, test_mode: Str) -> str:
             elif env_success == 1 and test_success == -1:  # 执行失败
                 _logger.info("case4: env_success == 1 and test_success == -1, test failed")
                 return "case4"
-        else: ## test_mode 为 "pytest"或者 pyright
+        elif test_mode == "pytest" or test_mode == "pyright": ## test_mode 为 "pytest"或者 pyright
             # 情况3：环境成功，但还没有运行测试
             if env_success == 1 and test_success == 0:
                 _logger.info("case3: env_success == 1 and test_success == 0, env success, but not run test")
@@ -52,6 +54,7 @@ def router_function(state: Dict, test_mode: Str) -> str:
             # 默认情况：都成功
             _logger.info("default case: all success")
             return "success"
+        
     else:
         raise ValueError("check_state is not found")
 
@@ -103,22 +106,8 @@ class EnvRepairCheckNode:
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 test
                 self._logger.info("Need to run test")
-        elif self.test_mode == "pyright":
+        elif self.test_mode == "pyright" or self.test_mode == "pytest":
             # pyright 模式下，test_result 是一个字典（不是列表）
-            if isinstance(test_results, dict) and len(test_results) > 0:
-                returncode = test_results.get("returncode", 1)
-                issues_count = test_results.get("issues_count", -1)
-                # issues_count 为 0 表示成功，大于 0 表示失败
-                if issues_count == 0 and returncode == 0:
-                    test_success = 1
-                elif issues_count > 0 or returncode != 0:
-                    test_success = -1
-                else:
-                    test_success = 0
-            elif len(test_results) == 0:
-                # 如果没有 test_result，需要先运行 pyright 检查
-                pass
-        elif self.test_mode == "pytest":
             if isinstance(test_results, dict) and len(test_results) > 0:
                 returncode = test_results.get("returncode", 1)
                 issues_count = test_results.get("issues_count", -1)
@@ -130,7 +119,7 @@ class EnvRepairCheckNode:
                     test_success = 0
             elif len(test_results) == 0:
                 # 如果没有 test_result，需要先运行 pytest 检查
-                pass
+                passthrough
         
         # 判断是否完成
         should_continue = True

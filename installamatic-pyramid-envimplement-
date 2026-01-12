@@ -1,0 +1,28 @@
+nohup: ignoring input
+2026-01-08 14:21:14,068 - prometheus - INFO - ADVANCED_MODEL=openai/gpt-5
+2026-01-08 14:21:14,068 - prometheus - INFO - ANTHROPIC_API_KEY=********
+2026-01-08 14:21:14,068 - prometheus - INFO - BASE_MODEL=openai/gpt-5
+2026-01-08 14:21:14,068 - prometheus - INFO - GEMINI_API_KEY=********
+2026-01-08 14:21:14,068 - prometheus - INFO - KNOWLEDGE_GRAPH_ASTNODE_ARGS=max_ast_depth=3 save_ast_depth=[1] save_declare_depth=[2, 3]
+2026-01-08 14:21:14,068 - prometheus - INFO - KNOWLEDGE_GRAPH_CHUNK_OVERLAP=1000
+2026-01-08 14:21:14,068 - prometheus - INFO - KNOWLEDGE_GRAPH_CHUNK_SIZE=10000
+2026-01-08 14:21:14,068 - prometheus - INFO - LOGGING_LEVEL=DEBUG
+2026-01-08 14:21:14,068 - prometheus - INFO - MAX_TOKEN_PER_NEO4J_RESULT=10000
+2026-01-08 14:21:14,068 - prometheus - INFO - NEO4J_BATCH_SIZE=1000
+2026-01-08 14:21:14,068 - prometheus - INFO - NEO4J_PASSWORD=********
+2026-01-08 14:21:14,068 - prometheus - INFO - NEO4J_URI=bolt://localhost:7688
+2026-01-08 14:21:14,068 - prometheus - INFO - NEO4J_USERNAME=neo4j
+2026-01-08 14:21:14,068 - prometheus - INFO - OPENAI_FORMAT_API_KEY=********
+2026-01-08 14:21:14,068 - prometheus - INFO - OPENAI_FORMAT_BASE_URL=https://openrouter.ai/api/v1
+2026-01-08 14:21:14,069 - prometheus - INFO - PROJECT_DIRECTORY=/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects
+2026-01-08 14:21:14,069 - prometheus - INFO - REPAIR_RECURSION_LIMIT=200
+2026-01-08 14:21:14,069 - prometheus - INFO - TAVILY_API_KEY=********
+2026-01-08 14:21:14,069 - prometheus - INFO - TEMPERATURE=1.0
+2026-01-08 14:21:14,069 - prometheus - INFO - VERTEX_AI_LOCATION=us-central1
+2026-01-08 14:21:14,069 - prometheus - INFO - VERTEX_AI_PROJECT_ID=prometheus-code-agent
+2026-01-08 14:21:14,069 - prometheus - INFO - WORKING_DIRECTORY=/Data/lix/EnvAgent/Prometheus_reproduce_logs
+Usage: python -m app.main [OPTIONS]
+Try 'python -m app.main --help' for help.
+
+Error: Got unexpected extra argument (repair-batch1.nohup.out)
+2026-01-08 14:21:18,324 - thread-124957257827840.app.services.neo4j_service - INFO - Neo4j driver connection closed.

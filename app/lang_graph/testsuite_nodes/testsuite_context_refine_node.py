@@ -102,9 +102,10 @@ Decision logic:
 Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.js ("npm start"), Rust ("cargo run"), Go ("go run main.go").
 """
 
-    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph, local_path: str):
+    def __init__(self, model: BaseChatModel, kg: KnowledgeGraph, local_path: str, easy_mode: bool = False):
         self.file_tree = kg.get_file_tree()
         self.local_path = local_path
+        self.easy_mode = easy_mode
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.SYS_PROMPT),
@@ -158,6 +159,17 @@ Goal: Follow the Rule of Thumb above. Examples: Python ("python main.py"), Node.
         level2_commands = state.get("testsuite_level2_commands", [])
         level3_commands = state.get("testsuite_level3_commands", [])
         level4_commands = state.get("testsuite_level4_commands", [])
+        
+        # Easy mode: stop as soon as any testsuite commands exist
+        if self.easy_mode:
+            has_any_commands = bool(level1_commands or level2_commands or level3_commands or level4_commands)
+            if has_any_commands:
+                self._logger.info(
+                    f"[Easy Mode] Testsuite commands found (Level 1: {bool(level1_commands)}, "
+                    f"Level 2: {bool(level2_commands)}, Level 3: {bool(level3_commands)}, "
+                    f"Level 4: {bool(level4_commands)}). Stopping refinement."
+                )
+                return {"testsuite_refined_query": ""}
         
         # Check if we have Level 1 AND at least one other level has commands
         has_level1 = bool(level1_commands)

@@ -205,7 +205,7 @@ class EnvRepairSubgraph:
                 # workflow.add_node(
                 #     "update_command", env_repair_update_command_node
                 # )  # 更新测试命令
-            if test_mode == "pytest":
+            elif test_mode == "pytest":
                 workflow.add_node("execute_pytest", env_repair_pytest_execute_node)  # 执行pytest
                 workflow.add_node("analyse_pytest_error", env_repair_pytest_analyse_node)  # 分析pytest错误
             else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
