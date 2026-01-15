@@ -111,10 +111,27 @@ class RepositoryService(BaseService):
         if existing_repo:
             repo_path = Path(existing_repo.playground_path)
             if repo_path.exists():
-                self.logger.info(
-                    f"Found existing repository at {repo_path} with KG root node ID: {existing_repo.kg_root_node_id}"
-                )
-                return repo_path, existing_repo.kg_root_node_id, False
+                # Verify that the knowledge graph still exists in Neo4j
+                # (it might have been lost if Neo4j was restarted)
+                if self.kg_service.knowledge_graph_exists(existing_repo.kg_root_node_id):
+                    self.logger.info(
+                        f"Found existing repository at {repo_path} with KG root node ID: {existing_repo.kg_root_node_id}"
+                    )
+                    return repo_path, existing_repo.kg_root_node_id, False
+                else:
+                    self.logger.warning(
+                        f"Repository exists at {repo_path} but knowledge graph (node_id: {existing_repo.kg_root_node_id}) "
+                        f"not found in Neo4j. Rebuilding knowledge graph..."
+                    )
+                    # Rebuild knowledge graph
+                    kg_root_node_id = self.kg_service.build_and_save_knowledge_graph(repo_path)
+                    # Update repository metadata with new root node ID
+                    existing_repo.kg_root_node_id = kg_root_node_id
+                    self.repository_storage.save_repository(existing_repo)
+                    self.logger.info(
+                        f"Rebuilt knowledge graph with new root node ID: {kg_root_node_id}"
+                    )
+                    return repo_path, kg_root_node_id, False
             else:
                 self.logger.warning(
                     f"Repository metadata exists but path {repo_path} not found. Removing stale metadata."

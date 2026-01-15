@@ -1,6 +1,7 @@
 import json
 import os
 import traceback
+import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path, PosixPath
@@ -63,6 +64,77 @@ def serialize_states_for_json(states: Dict[str, Any]) -> Dict[str, Any]:
         else:
             serialized[key] = value
     return serialized
+
+
+def extract_testsuite_commands_from_json_files(project_path: Path) -> Dict[str, List[str]]:
+    """
+    Extract and organize testsuite commands from prometheus_testsuite_states_*.json files.
+    
+    Args:
+        project_path: Path to the project directory containing the state files
+        
+    Returns:
+        Dictionary with organized commands:
+        {
+            "testsuite_build_commands": [...],
+            "testsuite_level1_commands": [...],
+            "testsuite_level2_commands": [...],
+            "testsuite_level3_commands": [...],
+            "testsuite_level4_commands": [...]
+        }
+    """
+    pattern = os.path.join(project_path, "prometheus_testsuite_states_*.json")
+    state_files = glob.glob(pattern)
+    
+    if not state_files:
+        logger.warning(f"No testsuite state files found matching pattern: {pattern}")
+        return {
+            "testsuite_build_commands": [],
+            "testsuite_level1_commands": [],
+            "testsuite_level2_commands": [],
+            "testsuite_level3_commands": [],
+            "testsuite_level4_commands": [],
+        }
+    
+    # Initialize command lists
+    command_lists = {
+        "testsuite_build_commands": [],
+        "testsuite_level1_commands": [],
+        "testsuite_level2_commands": [],
+        "testsuite_level3_commands": [],
+        "testsuite_level4_commands": [],
+    }
+    
+    # Extract command content from message objects or strings
+    def extract_content(commands_list: List[Any]) -> List[str]:
+        """Extract 'content' field from command objects or return string directly"""
+        result = []
+        for cmd in commands_list:
+            if isinstance(cmd, dict) and "content" in cmd:
+                result.append(cmd["content"])
+            elif isinstance(cmd, str):
+                result.append(cmd)
+        return result
+    
+    # Read and extract commands from each file
+    for state_file in state_files:
+        logger.info(f"Reading testsuite states from: {state_file}")
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                states_data = json.load(f)
+            
+            # Extract commands from each level
+            for key in command_lists.keys():
+                command_lists[key].extend(extract_content(states_data.get(key, [])))
+        except Exception as e:
+            logger.error(f"Error reading {state_file}: {str(e)}")
+            continue
+    
+    # Remove duplicates and return
+    return {
+        key: list(set(commands)) 
+        for key, commands in command_lists.items()
+    }
 
 
 def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
@@ -177,11 +249,37 @@ def reproduce_test(
         logger.info(f"Using existing repository at: {repo_path}")
 
     logger.info(f"Knowledge graph root node ID: {root_node_id}")
-    knowledge_graph = knowledge_graph_service.get_knowledge_graph(
-        root_node_id,
-        settings.KNOWLEDGE_GRAPH_CHUNK_SIZE,
-        settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
-    )
+    try:
+        knowledge_graph = knowledge_graph_service.get_knowledge_graph(
+            root_node_id,
+            settings.KNOWLEDGE_GRAPH_CHUNK_SIZE,
+            settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
+        )
+    except ValueError as e:
+        if "not found" in str(e):
+            # Knowledge graph was lost (e.g., Neo4j restarted)
+            logger.warning(
+                f"Knowledge graph with root_node_id {root_node_id} not found in Neo4j. "
+                f"Rebuilding from repository at {repo_path}..."
+            )
+            # Rebuild knowledge graph
+            root_node_id = knowledge_graph_service.build_and_save_knowledge_graph(repo_path)
+            logger.info(f"Rebuilt knowledge graph with new root node ID: {root_node_id}")
+            # Update repository metadata
+            existing_repo = repository_service.repository_storage.get_repository_by_url_and_commit_id(
+                github_url, project_tag
+            )
+            if existing_repo:
+                existing_repo.kg_root_node_id = root_node_id
+                repository_service.repository_storage.save_repository(existing_repo)
+            # Retry getting knowledge graph
+            knowledge_graph = knowledge_graph_service.get_knowledge_graph(
+                root_node_id,
+                settings.KNOWLEDGE_GRAPH_CHUNK_SIZE,
+                settings.KNOWLEDGE_GRAPH_CHUNK_OVERLAP,
+            )
+        else:
+            raise
     git_repo = repository_service.get_repository(repo_path)
 
     # if project_path is provided, use it to create new temp project path, otherwise create new temp project path from repo_path
@@ -254,35 +352,40 @@ def reproduce_test(
     if debug_mode:
         logger.info(f"parse testsuite commands...")
         try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=5,)
-            testsuite_commands_raw = testsuiteoutput_states.get("testsuite_commands", [])
-            testsuite_commands_level = {
-                "build_commands": list(set(testsuite_commands_raw.get("testsuite_build_commands", []))),
-                "level1_commands": list(set(testsuite_commands_raw.get("testsuite_level1_commands", []))),
-                "level2_commands": list(set(testsuite_commands_raw.get("testsuite_level2_commands", []))),
-                "level3_commands": list(set(testsuite_commands_raw.get("testsuite_level3_commands", []))),
-                "level4_commands": list(set(testsuite_commands_raw.get("testsuite_level4_commands", []))),
-            }
-            testsuite_commands = testsuite_commands_level
+            # Extract commands from JSON files
+            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=settings.TESTSUITE_RECURSION_LIMIT/40,)
+            testsuite_commands = extract_testsuite_commands_from_json_files(container.project_path)
+            
+            # Save to prometheus_testsuite_commands.json
+            output_file = os.path.join(container.project_path, "prometheus_testsuite_commands.json")
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
+            logger.info(f"Saved testsuite commands to: {output_file}")
+            
         except Exception as e:
-            logger.debug(f"Error in testsuite commands: {str(e)}")
+            logger.error(f"Error in testsuite commands: {str(e)}\n{traceback.format_exc()}")
+            testsuite_commands = {
+                "testsuite_build_commands": [],
+                "testsuite_level1_commands": [],
+                "testsuite_level2_commands": [],
+                "testsuite_level3_commands": [],
+                "testsuite_level4_commands": [],
+            }
 
-        # with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
-        #     json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
 
-        # logger.info(f"start environment implementation...")
-        # try:
-        #     # env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
-        #     env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=None)
-        # except Exception as e:
-        #     logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-        #     return (
-        #         False,
-        #         {},
-        #         {},
-        #         container_git_repo.playground_path,
-        #         container.print_container_info(),
-        #     )
+        logger.info(f"start environment implementation...")
+        try:
+            # env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
+            env_output_states = env_implement_subgraph.invoke(recursion_limit=settings.ENVIMPLEMENT_RECURSION_LIMIT, testsuite_commands=None)
+        except Exception as e:
+            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
+            return (
+                False,
+                {},
+                {},
+                container_git_repo.playground_path,
+                container.print_container_info(),
+            )
 
 
         logger.info(f"parse env setup bash...")
@@ -294,16 +397,6 @@ def reproduce_test(
             "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
             "file_content": env_setup_bash,
         }
-        # with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r") as f:
-        #     testsuite_commands_level = json.load(f)
-        #     testsuite_commands_level = {
-        #         "build_commands": list(set(testsuite_commands_level.get("testsuite_build_commands", []))),
-        #         "level1_commands": list(set(testsuite_commands_level.get("testsuite_level1_commands", []))),
-        #         "level2_commands": list(set(testsuite_commands_level.get("testsuite_level2_commands", []))),
-        #         "level3_commands": list(set(testsuite_commands_level.get("testsuite_level3_commands", []))),
-        #         "level4_commands": list(set(testsuite_commands_level.get("testsuite_level4_commands", []))),
-        #     }
-        #     testsuite_commands = testsuite_commands_level #[command for level in testsuite_commands_level.values() for command in level]
         doc["test_commands"] = testsuite_commands
 
         try:
@@ -374,7 +467,7 @@ def reproduce_test(
         todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
         """
         try:
-            env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
+            env_output_states = env_implement_subgraph.invoke(recursion_limit=settings.ENVIMPLEMENT_RECURSION_LIMIT, testsuite_commands=testsuite_commands)
         except Exception as e:
             logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
             return (

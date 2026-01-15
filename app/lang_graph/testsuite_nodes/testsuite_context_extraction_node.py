@@ -20,6 +20,19 @@ Requirements:
 - Remove duplicates
 """
 
+SYS_PROMPT_EASY_MODE = """
+You are a command extractor. Your goal is to extract runnable shell commands found in the documentation.
+
+Requirements (relaxed for easy mode):
+- Extract suitable commands found in the documentation
+- Include commands that start the software, run tests, check versions, etc.
+- You can extract commands that are reasonably inferred from the context, even if not explicitly shown
+- Include common commands that are typically used (e.g., "python main.py" if main.py exists, "npm test" if package.json exists)
+- Return a simple list of commands without classification
+- Remove duplicates
+- Be more lenient in extraction - it's better to include potentially useful commands than to miss them
+"""
+
 HUMAN_MESSAGE = """
 Original user intent:
 {original_query}
@@ -44,16 +57,19 @@ class TestsuiteCommandStructuredOutput(BaseModel):
 
 
 class TestsuiteContextExtractionNode:
-    def __init__(self, model: BaseChatModel, local_path: str):
+    def __init__(self, model: BaseChatModel, local_path: str, easy_mode: bool = False):
+        # Use relaxed prompt in easy mode
+        sys_prompt = SYS_PROMPT_EASY_MODE if easy_mode else SYS_PROMPT
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", SYS_PROMPT),
+                ("system", sys_prompt),
                 ("human", "{human_prompt}"),
             ]
         )
         structured_llm = model.with_structured_output(TestsuiteCommandStructuredOutput)
         self.model = prompt | structured_llm
         self.local_path = local_path
+        self.easy_mode = easy_mode
         self._logger, file_handler = get_thread_logger(__name__)
 
     def extract_files_from_messages(self, messages: list) -> list[str]:

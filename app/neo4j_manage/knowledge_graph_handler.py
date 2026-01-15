@@ -552,24 +552,50 @@ class KnowledgeGraphHandler:
 
     def get_new_knowledge_graph_root_node_id(self) -> int:
         """
-        Estimate the next available node id in the Neo4j database.
+        Get the next available node id in the Neo4j database.
+        This method finds the maximum node_id and returns the next available ID,
+        ensuring it doesn't conflict with existing nodes.
 
         Returns:
             int: The next available node id (max id + 1), or 0 if no nodes exist.
         """
-        # query = "MATCH (n) RETURN max(id(n)) AS max_id"
         query = """
         MATCH (n)
         WHERE n.node_id IS NOT NULL
         RETURN coalesce(max(n.node_id), -1) AS max_node_id"""
 
         with self.driver.session() as session:
-            # result = session.run(query)
-            # max_id = result.single()["max_id"]
-            # return 0 if max_id is None else max_id + 1
             rec = session.run(query).single()
             max_node_id = rec["max_node_id"]
-            return int(max_node_id) + 1
+            candidate_id = int(max_node_id) + 1
+            
+            # Ensure candidate_id is at least 0
+            if candidate_id < 0:
+                candidate_id = 0
+            
+            # Verify that the candidate_id doesn't exist
+            # If it exists, keep incrementing until we find an available ID
+            check_query = """
+            MATCH (n)
+            WHERE n.node_id = $node_id
+            RETURN count(n) > 0 AS exists
+            """
+            max_attempts = 1000  # Safety limit
+            attempts = 0
+            while attempts < max_attempts:
+                result = session.run(check_query, node_id=candidate_id).single()
+                if not result["exists"]:
+                    return candidate_id
+                candidate_id += 1
+                attempts += 1
+            
+            # If we've exhausted attempts, return the candidate anyway
+            # (this shouldn't happen in practice)
+            self._logger.warning(
+                f"Could not find available node_id after {max_attempts} attempts. "
+                f"Returning {candidate_id} anyway."
+            )
+            return candidate_id
 
     def clear_knowledge_graph(self, root_node_id: int):
         """

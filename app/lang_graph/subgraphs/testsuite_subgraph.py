@@ -129,7 +129,7 @@ class TestsuiteSubgraph:
             )
 
             # Step 4: Extract the Context
-            testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, self.local_path)
+            testsuite_context_extraction_node = TestsuiteContextExtractionNode(model, self.local_path, easy_mode=True)
 
             # Step 5: Reset tool messages to prepare for the next iteration (if needed)
             # reset_testsuite_context_provider_messages_node = ResetMessagesNode("testsuite_context_provider_messages")
