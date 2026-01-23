@@ -142,3 +142,4 @@ projects/
 *nohup.out
 .env.backup
 .vscode/launch.json
+.vscode/launch.json
