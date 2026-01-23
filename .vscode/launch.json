@@ -26,6 +26,136 @@
                 "DEBUG": "1",
                 "LOG_LEVEL": "DEBUG"
             }
-        }
+        },
+        {
+            "name": "EnvAgent (Debug)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main/app/main.py",
+            "args": [
+                "--dataset_file_path",
+                // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/swe-bench-lite.txt", // <--- 在这里填入你要调试的数据集名称
+                "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/repo2run-batch1-notestinputenvimplement-envexecution-playgraoundpath-dockerimagename-torepair-2.txt",
+                // "--file",
+                // "debug_predictions.json",
+                "--github_token",
+                "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",
+                "-w",
+                "1",
+                // "--dockerfile_template",
+                // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/dockerfile/python-pytest.dockerfile"
+                "--docker_image_name",
+                "envagent_python_pytest:latest"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+                "DEBUG": "1",
+                "LOG_LEVEL": "DEBUG",
+                "GOOGLE_APPLICATION_CREDENTIALS": "/home/lix/EnvAgent/prometheus-code-agent-894a62406daa.json"
+            }
+        },
+
+        {
+            "name": "EnvAgent (Ablation)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main/app/main.py",
+            "args": [
+                "--dataset_file_path",
+                // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/swe-bench-lite.txt", // <--- 在这里填入你要调试的数据集名称
+                "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/executionAgent-ablationEXP1_pyramid_notestinputenvimplement-playground.txt",
+                // "--file",
+                // "debug_predictions.json",
+                "--github_token",
+                "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",
+                "-w",
+                "1",
+                // "--dockerfile_template",
+                // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/dockerfile/python-pytest.dockerfile"
+                "--docker_image_name",
+                "envagent-multi-language:v1.1"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+                "DEBUG": "1",
+                "LOG_LEVEL": "DEBUG",
+                "GOOGLE_APPLICATION_CREDENTIALS": "/home/lix/EnvAgent/prometheus-code-agent-894a62406daa.json"
+            }
+        },
+
+        {
+            "name": "Run SWE-bench reproduce (Debug)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/SWE-bench-eval/main.py",
+            "args": [
+                "--dataset_name",
+                "SWE-bench/SWE-bench_Lite",
+                "--prometheus_url",
+                "http://localhost:9009",
+                "--github_token",
+                "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"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/SWE-bench-eval",
+            "justMyCode": false,
+            "stopOnEntry": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/SWE-bench-eval",
+                "DEBUG": "1",
+                "LOG_LEVEL": "DEBUG",
+                "GOOGLE_APPLICATION_CREDENTIALS": "/home/lix/EnvAgent/prometheus-code-agent-894a62406daa.json"
+            }
+        },
+        {
+            "name": "EnvBench Evaluation(Debug)",
+            "type": "python",
+            "request": "launch",
+            "python": "${workspaceFolder}/EnvBench/.venv/bin/python",
+            "program": "${workspaceFolder}/EnvBench/evaluation/main.py",
+            "args": [
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/EnvBench/evaluation",
+            "justMyCode": false,
+            "stopOnEntry": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/EnvBench/evaluation",
+                "DEBUG": "1",
+                "LOG_LEVEL": "DEBUG",
+                "HF_TOKEN": "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"
+            }
+        },
     ]
 }
+
+
+// docker run -d \
+//   --name neo4j_lix_new \
+//   -p 7475:7474 \
+//   -p 7688:7687 \
+//   -e NEO4J_AUTH=neo4j/password \
+//   -e NEO4J_PLUGINS='["apoc"]' \
+//   -e NEO4J_dbms_memory_heap_initial__size=4G \
+//   -e NEO4J_dbms_memory_heap_max__size=8G \
+//   -e NEO4J_dbms_memory_pagecache_size=4G \
+//   -v /sdb-disk/lix/neo4j_data_backup:/data \
+//   neo4j
+
+// docker run -d \
+//   --name postgres_lix \
+//   -p 5435:5432 \
+//   -e POSTGRES_USER=app2_user \
+//   -e POSTGRES_PASSWORD=app2_password \
+//   -e POSTGRES_DB=app2_db \
+//   postgres
+
+// python prometheus/app/main.py --host 0.0.0.0 --port 9009
+// uvicorn prometheus.app.main:app --host 0.0.0.0 --port 9009
+// python3 main.py --dataset_name SWE-bench/SWE-bench_Lite --prometheus_url http://localhost:9009 --github_token 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
