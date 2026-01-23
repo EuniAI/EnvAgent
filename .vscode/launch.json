@@ -31,7 +31,7 @@
             "name": "EnvAgent (Debug)",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main/app/main.py",
+            "program": "${workspaceFolder}/app/main.py",
             "args": [
                 "--dataset_file_path",
                 // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/swe-bench-lite.txt", // <--- 在这里填入你要调试的数据集名称
@@ -62,11 +62,11 @@
             "name": "EnvAgent (Ablation)",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main/app/main.py",
+            "program": "${workspaceFolder}/app/main.py",
             "args": [
                 "--dataset_file_path",
                 // "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/swe-bench-lite.txt", // <--- 在这里填入你要调试的数据集名称
-                "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/executionAgent-ablationEXP1_pyramid_notestinputenvimplement-playground.txt",
+                "/home/lix/EnvAgent/Prometheus-Bug-Reproduction-Agent-main/projects/executionAgent-ablationEXP1_pyramid_notestinputenvimplement-playground-filtered-projects.txt",
                 // "--file",
                 // "debug_predictions.json",
                 "--github_token",
@@ -79,10 +79,10 @@
                 "envagent-multi-language:v1.1"
             ],
             "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+            "cwd": "${workspaceFolder}",
             "justMyCode": false,
             "env": {
-                "PYTHONPATH": "${workspaceFolder}/Prometheus-Bug-Reproduction-Agent-main",
+                "PYTHONPATH": "${workspaceFolder}",
                 "DEBUG": "1",
                 "LOG_LEVEL": "DEBUG",
                 "GOOGLE_APPLICATION_CREDENTIALS": "/home/lix/EnvAgent/prometheus-code-agent-894a62406daa.json"

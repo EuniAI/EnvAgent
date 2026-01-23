@@ -14,7 +14,8 @@ from tqdm import tqdm
 from app.configuration.config import settings
 from app.container.general_container import GeneralContainer
 from app.lang_graph.subgraphs.env_implement_subgraph import EnvImplementSubgraph
-from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
+# from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
+from app.lang_graph.subgraphs.env_ablation_1_repair_subgraph import EnvAblation1RepairSubgraph
 from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
 from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.services.llm_service import LLMService
@@ -337,7 +338,8 @@ def reproduce_test(
         max_token_per_neo4j_result=settings.MAX_TOKEN_PER_NEO4J_RESULT,
         test_mode=test_mode,
     )
-    env_repair_subgraph = EnvRepairSubgraph(
+
+    env_ablation_1_repair_subgraph = EnvAblation1RepairSubgraph(
         debug_mode=debug_mode,
         test_mode=test_mode,
         repair_only_run_env_execute=repair_only_run_env_execute,
@@ -352,20 +354,22 @@ def reproduce_test(
     
     if debug_mode:
         logger.info(f"parse testsuite commands...")
-        try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=5,)
-            testsuite_commands_raw = testsuiteoutput_states.get("testsuite_commands", [])
-            testsuite_commands_level = {
-                "build_commands": list(set(testsuite_commands_raw.get("testsuite_build_commands", []))),
-                "level1_commands": list(set(testsuite_commands_raw.get("testsuite_level1_commands", []))),
-                "level2_commands": list(set(testsuite_commands_raw.get("testsuite_level2_commands", []))),
-                "level3_commands": list(set(testsuite_commands_raw.get("testsuite_level3_commands", []))),
-                "level4_commands": list(set(testsuite_commands_raw.get("testsuite_level4_commands", []))),
-            }
-            testsuite_commands = testsuite_commands_level
-        except Exception as e:
-            logger.debug(f"Error in testsuite commands: {str(e)}")
+        # try:
+        #     testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
+        #     testsuite_commands_raw = testsuiteoutput_states.get("testsuite_commands", [])
+        #     testsuite_commands_level = {
+        #         "build_commands": list(set(testsuite_commands_raw.get("testsuite_build_commands", []))),
+        #         "level1_commands": list(set(testsuite_commands_raw.get("testsuite_level1_commands", []))),
+        #         "level2_commands": list(set(testsuite_commands_raw.get("testsuite_level2_commands", []))),
+        #         "level3_commands": list(set(testsuite_commands_raw.get("testsuite_level3_commands", []))),
+        #         "level4_commands": list(set(testsuite_commands_raw.get("testsuite_level4_commands", []))),
+        #     }
+        #     testsuite_commands = testsuite_commands_level
+        # except Exception as e:
+        #     logger.debug(f"Error in testsuite commands: {str(e)}")
+        # testsuite_commands = extract_testsuite_commands_from_json_files(container.project_path)
 
+        
         # with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
         #     json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
 
@@ -393,20 +397,21 @@ def reproduce_test(
             "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
             "file_content": env_setup_bash,
         }
-        # with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r") as f:
-        #     testsuite_commands_level = json.load(f)
-        #     testsuite_commands_level = {
-        #         "build_commands": list(set(testsuite_commands_level.get("testsuite_build_commands", []))),
-        #         "level1_commands": list(set(testsuite_commands_level.get("testsuite_level1_commands", []))),
-        #         "level2_commands": list(set(testsuite_commands_level.get("testsuite_level2_commands", []))),
-        #         "level3_commands": list(set(testsuite_commands_level.get("testsuite_level3_commands", []))),
-        #         "level4_commands": list(set(testsuite_commands_level.get("testsuite_level4_commands", []))),
-        #     }
-        #     testsuite_commands = testsuite_commands_level #[command for level in testsuite_commands_level.values() for command in level]
+        
+        with open(os.path.join(container.project_path, "adjusted_prometheus_testsuite_commands.json"), "r") as f:
+            testsuite_commands_raw = json.load(f)
+        testsuite_commands_level = {
+            "build_commands": list(set(testsuite_commands_raw.get("testsuite_build_commands", []))),
+            "level1_commands": list(set(testsuite_commands_raw.get("testsuite_level1_commands", []))),
+            "level2_commands": list(set(testsuite_commands_raw.get("testsuite_level2_commands", []))),
+            "level3_commands": list(set(testsuite_commands_raw.get("testsuite_level3_commands", []))),
+            "level4_commands": list(set(testsuite_commands_raw.get("testsuite_level4_commands", []))),
+        }
+        testsuite_commands = testsuite_commands_level
         doc["test_commands"] = testsuite_commands
 
         try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+            env_implement_output = env_ablation_1_repair_subgraph.invoke(doc, recursion_limit=150)
         except Exception as e:
             logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
             return (
