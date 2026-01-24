@@ -14,8 +14,9 @@ from tqdm import tqdm
 from app.configuration.config import settings
 from app.container.general_container import GeneralContainer
 from app.lang_graph.subgraphs.env_implement_subgraph import EnvImplementSubgraph
-# from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
+from app.lang_graph.subgraphs.env_repair_subgraph import EnvRepairSubgraph
 from app.lang_graph.subgraphs.env_ablation_1_repair_subgraph import EnvAblation1RepairSubgraph
+from app.lang_graph.subgraphs.env_ablation_2_repair_subgraph import EnvAblation2RepairSubgraph
 from app.lang_graph.subgraphs.testsuite_subgraph import TestsuiteSubgraph
 from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.services.llm_service import LLMService
@@ -30,7 +31,7 @@ logger, file_handler = get_thread_logger(__name__)
 debug_mode = True
 repair_only_run_env_execute = False
 repair_only_run_test_execute = True
-ablation_mode = "1" # 1 2 3 4
+ablation_mode = "2" # 1 2 3 4
 test_mode = "generation"  # generation pyright pytest CI/CD
 
 
@@ -339,18 +340,32 @@ def reproduce_test(
         test_mode=test_mode,
     )
 
-    env_ablation_1_repair_subgraph = EnvAblation1RepairSubgraph(
-        debug_mode=debug_mode,
-        test_mode=test_mode,
-        repair_only_run_env_execute=repair_only_run_env_execute,
-        repair_only_run_test_execute=repair_only_run_test_execute,
-        advanced_model=llm_service.advanced_model,
-        base_model=llm_service.base_model,
-        container=container,
-        kg=knowledge_graph,
-        git_repo=container_git_repo,
-        neo4j_driver=neo4j_service.neo4j_driver,
-    )
+    if ablation_mode == "1":
+        env_ablation_repair_subgraph = EnvAblation1RepairSubgraph(
+            debug_mode=debug_mode,
+            test_mode=test_mode,
+            repair_only_run_env_execute=repair_only_run_env_execute,
+            repair_only_run_test_execute=repair_only_run_test_execute,
+            advanced_model=llm_service.advanced_model,
+            base_model=llm_service.base_model,
+            container=container,
+            kg=knowledge_graph,
+            git_repo=container_git_repo,
+            neo4j_driver=neo4j_service.neo4j_driver,
+        )
+    elif ablation_mode == "2":
+        env_ablation_repair_subgraph = EnvAblation2RepairSubgraph(
+            debug_mode=debug_mode,
+            test_mode=test_mode,
+            repair_only_run_env_execute=repair_only_run_env_execute,
+            repair_only_run_test_execute=repair_only_run_test_execute,
+            advanced_model=llm_service.advanced_model,
+            base_model=llm_service.base_model,
+            container=container,
+            kg=knowledge_graph,
+            git_repo=container_git_repo,
+            neo4j_driver=neo4j_service.neo4j_driver,
+        )
     
     if debug_mode:
         logger.info(f"parse testsuite commands...")
@@ -411,7 +426,7 @@ def reproduce_test(
         doc["test_commands"] = testsuite_commands
 
         try:
-            env_implement_output = env_ablation_1_repair_subgraph.invoke(doc, recursion_limit=150)
+            env_implement_output = env_ablation_repair_subgraph.invoke(doc, recursion_limit=150)
         except Exception as e:
             logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
             return (
