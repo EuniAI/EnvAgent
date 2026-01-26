@@ -397,7 +397,14 @@ def reproduce_test(
             "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
             "file_content": env_setup_bash,
         }
-        doc["test_commands"] = testsuite_commands
+        testsuite_commands_level = {
+            "build_commands": list(set(testsuite_commands.get("testsuite_build_commands", []))),
+            "level1_commands": list(set(testsuite_commands.get("testsuite_level1_commands", []))),
+            "level2_commands": list(set(testsuite_commands.get("testsuite_level2_commands", []))),
+            "level3_commands": list(set(testsuite_commands.get("testsuite_level3_commands", []))),
+            "level4_commands": list(set(testsuite_commands.get("testsuite_level4_commands", []))),
+        }
+        doc["test_commands"] = testsuite_commands_level
 
         try:
             env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
