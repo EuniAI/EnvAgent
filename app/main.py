@@ -26,7 +26,7 @@ from app.utils.logger_manager import get_thread_logger
 GITHUB_HTTPS_URL = "https://github.com/{repo_name}.git"
 
 logger, file_handler = get_thread_logger(__name__)
-debug_mode = True
+debug_mode = False
 repair_only_run_env_execute = False
 repair_only_run_test_execute = True
 test_mode = "generation"  # generation pyright pytest CI/CD
@@ -139,17 +139,17 @@ def extract_testsuite_commands_from_json_files(project_path: Path) -> Dict[str, 
 
 def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
     """
-    解析 all_projects.txt 文件
-    文件格式：项目名 标签 [项目路径] [dockerfile模板路径]
+    Parse the all_projects.txt file.
+    File format: project_name tag [project_path] [dockerfile_template_path]
     Args:
-        file_path: all_projects.txt 文件的路径
+        file_path: path to the all_projects.txt file
     Returns:
-        包含项目信息的字典列表，每个字典包含：
-        - name: 项目名称
-        - repo_url: 仓库URL
-        - tag: 项目标签
-        - project_path: 项目路径（可选）
-        - dockerfile_template: Dockerfile模板路径（可选）
+        A list of dictionaries containing project information. Each dictionary includes:
+        - name: project name
+        - repo_url: repository URL
+        - tag: project tag
+        - project_path: project path (optional)
+        - dockerfile_template: Dockerfile template path (optional)
     """
     projects = []
 
@@ -160,7 +160,6 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 if not line or line.startswith("#"):
                     continue
 
-                # 按空格分割，但URL可能包含空格，需要特殊处理
                 parts = line.split()
                 project_name = parts[0]
                 repo_url = "http://github.com/" + project_name
@@ -187,10 +186,10 @@ def parse_all_projects_file(file_path: str) -> List[Dict[str, str]]:
                 projects.append(project_info)
 
     except FileNotFoundError:
-        logger.error(f"找不到文件 {file_path}")
+        logger.error(f"File not found: {file_path}")
         return []
     except Exception as e:
-        logger.error(f"解析文件时发生错误: {e}")
+        logger.error(f"Error parsing file: {e}")
         return []
 
     return projects
@@ -349,175 +348,82 @@ def reproduce_test(
         neo4j_driver=neo4j_service.neo4j_driver,
     )
     
-    if debug_mode:
-        logger.info(f"parse testsuite commands...")
-        try:
-            # Extract commands from JSON files
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=settings.TESTSUITE_RECURSION_LIMIT/40,)
-            testsuite_commands = extract_testsuite_commands_from_json_files(container.project_path)
-            
-            # Save to prometheus_testsuite_commands.json
-            output_file = os.path.join(container.project_path, "prometheus_testsuite_commands.json")
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
-            logger.info(f"Saved testsuite commands to: {output_file}")
-            
-        except Exception as e:
-            logger.error(f"Error in testsuite commands: {str(e)}\n{traceback.format_exc()}")
-            testsuite_commands = {
-                "testsuite_build_commands": [],
-                "testsuite_level1_commands": [],
-                "testsuite_level2_commands": [],
-                "testsuite_level3_commands": [],
-                "testsuite_level4_commands": [],
-            }
-
-
-        logger.info(f"start environment implementation...")
-        try:
-            # env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
-            env_output_states = env_implement_subgraph.invoke(recursion_limit=settings.ENVIMPLEMENT_RECURSION_LIMIT, testsuite_commands=None)
-        except Exception as e:
-            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-            return (
-                False,
-                {},
-                {},
-                container_git_repo.playground_path,
-                container.print_container_info(),
-            )
-
-
-        logger.info(f"parse env setup bash...")
-        with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
-            env_setup_bash = f.read()
-
-        logger.info(f"start env repair...")
-        doc["env_implement_command"] = {
-            "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
-            "file_content": env_setup_bash,
-        }
-        testsuite_commands_level = {
-            "build_commands": list(set(testsuite_commands.get("testsuite_build_commands", []))),
-            "level1_commands": list(set(testsuite_commands.get("testsuite_level1_commands", []))),
-            "level2_commands": list(set(testsuite_commands.get("testsuite_level2_commands", []))),
-            "level3_commands": list(set(testsuite_commands.get("testsuite_level3_commands", []))),
-            "level4_commands": list(set(testsuite_commands.get("testsuite_level4_commands", []))),
-        }
-        doc["test_commands"] = testsuite_commands_level
-
-        try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
-        except Exception as e:
-            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-            return (
-                False,
-                {},
-                {},
-                container_git_repo.playground_path,
-                container.print_container_info(),
-            )
-
-        return (
-                True,
-                {},
-                {},
-                container_git_repo.playground_path,
-                container.print_container_info(),
-            )
-
-
-    
-    elif not debug_mode:
-        testsuite_commands = []
-        logger.info("Starting testsuite...")
-        try:
-            testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=10,)
-            if test_mode == "generation":
-                # 改成 build + level1-4
-                testsuite_commands = {
-                    "build_commands": [command.content for command in testsuiteoutput_states.get("testsuite_build_commands", [])],
-                    "level1_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level1_commands", [])],
-                    "level2_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level2_commands", [])],
-                    "level3_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level3_commands", [])],
-                    "level4_commands": [command.content for command in testsuiteoutput_states.get("testsuite_level4_commands", [])],
-                }
-            elif test_mode == "CI/CD":
-                testsuite_commands = testsuiteoutput_states.get("testsuite_cicd_extracted_commands", [])
-
-
-            with open(os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "w") as f:
-                json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Error in testsuite: {str(e)}\n{traceback.format_exc()}")
-            # Clear the knowledge graph and repository
-            # container.cleanup()
-            # git_repo.reset_repository()
-            # logger.removeHandler(file_handler)
-            # file_handler.close()
-            return (
-                False,
-                {},
-                {},
-                container_git_repo.playground_path,
-                container.print_container_info(),
-            )
-
-        logger.info(f"parse testsuite commands...")
-        if test_mode == "generation":
-            with open(
-                os.path.join(container.project_path, "prometheus_testsuite_commands.json"), "r"
-            ) as f:
-                testsuite_commands = json.load(f)
-        logger.info("Starting environment implementation...")
-        """
-        todo: 将testsuite command 作为上下文输入，重点要查找能成功运行测试的环境配置，然后执行环境配置命令。
-        """
-        try:
-            env_output_states = env_implement_subgraph.invoke(recursion_limit=settings.ENVIMPLEMENT_RECURSION_LIMIT, testsuite_commands=testsuite_commands)
-        except Exception as e:
-            logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
-            return (
-                False,
-                {},
-                {},
-                container_git_repo.playground_path,
-                container.print_container_info(),
-            )
-
-        with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
-            env_setup_bash = f.read()
-        testsuiteoutput_states = {}
-        env_output_states = {}
-
-        # debug mode: 执行并交互env_implement_command和test_command
-        # if debug_mode:
+    logger.info(f"parse testsuite commands...")
+    try:
+        # Extract commands from JSON files
+        testsuiteoutput_states = testsuite_subgraph.invoke(max_refined_query_loop=settings.TESTSUITE_RECURSION_LIMIT/40,)
+        testsuite_commands = extract_testsuite_commands_from_json_files(container.project_path)
         
-        doc["env_implement_command"] = {
-            "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
-            "file_content": env_setup_bash,
+        # Save to prometheus_testsuite_commands.json
+        output_file = os.path.join(container.project_path, "prometheus_testsuite_commands.json")
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(testsuite_commands, f, indent=4, ensure_ascii=False)
+        logger.info(f"Saved testsuite commands to: {output_file}")
+        
+    except Exception as e:
+        logger.error(f"Error in testsuite commands: {str(e)}\n{traceback.format_exc()}")
+        testsuite_commands = {
+            "testsuite_build_commands": [],
+            "testsuite_level1_commands": [],
+            "testsuite_level2_commands": [],
+            "testsuite_level3_commands": [],
+            "testsuite_level4_commands": [],
         }
-        if test_mode == "generation":
-            doc["test_command"] = testsuite_commands
 
 
-        try:
-            env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
-        except Exception as e:
-            logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
-            return False, None, None, None, None
-
-        # Get container information
-        container_info = container.print_container_info()
-
-        # Return the states for logging
+    logger.info(f"start environment implementation...")
+    try:
+        # env_output_states = env_implement_subgraph.invoke(recursion_limit=200, testsuite_commands=testsuite_commands)
+        env_output_states = env_implement_subgraph.invoke(recursion_limit=settings.ENVIMPLEMENT_RECURSION_LIMIT, testsuite_commands=None)
+    except Exception as e:
+        logger.error(f"Error in environment implementation: {str(e)}\n{traceback.format_exc()}")
         return (
-            True,
-            testsuiteoutput_states,
-            env_output_states,
+            False,
+            {},
+            {},
             container_git_repo.playground_path,
-            container_info,
+            container.print_container_info(),
         )
+
+
+    logger.info(f"parse env setup bash...")
+    with open(os.path.join(container.project_path, "prometheus_setup.sh"), "r") as f:
+        env_setup_bash = f.read()
+
+    logger.info(f"start env repair...")
+    doc["env_implement_command"] = {
+        "command": "bash " + os.path.join(container.workdir, "prometheus_setup.sh"),
+        "file_content": env_setup_bash,
+    }
+    testsuite_commands_level = {
+        "build_commands": list(set(testsuite_commands.get("testsuite_build_commands", []))),
+        "level1_commands": list(set(testsuite_commands.get("testsuite_level1_commands", []))),
+        "level2_commands": list(set(testsuite_commands.get("testsuite_level2_commands", []))),
+        "level3_commands": list(set(testsuite_commands.get("testsuite_level3_commands", []))),
+        "level4_commands": list(set(testsuite_commands.get("testsuite_level4_commands", []))),
+    }
+    doc["test_commands"] = testsuite_commands_level
+
+    try:
+        env_implement_output = env_repair_subgraph.invoke(doc, recursion_limit=settings.REPAIR_RECURSION_LIMIT)
+    except Exception as e:
+        logger.error(f"Error in environment repair: {str(e)}\n{traceback.format_exc()}")
+        return (
+            False,
+            {},
+            {},
+            container_git_repo.playground_path,
+            container.print_container_info(),
+        )
+
+    return (
+            True,
+            {},
+            {},
+            container_git_repo.playground_path,
+            container.print_container_info(),
+        )
+
 
 
 @click.command()
@@ -532,12 +438,6 @@ def reproduce_test(
     help="Github token to access private repositories",
     default=None,
 )
-# @click.option(
-#     "--file",
-#     "-f",
-#     help="File to save the predictions or continue patch generating.",
-#     default=f"projects/predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-# )
 @click.option(
     "--max_workers",
     "-w",
@@ -568,11 +468,9 @@ def main(
     dockerfile_template: Optional[str],
     docker_image_name: Optional[str],
 ):
-    # 解析 all_projects.txt 文件、
     projects = parse_all_projects_file(dataset_file_path)
-    logger.info(f"成功解析 {len(projects)} 个项目")
+    logger.info(f"Successfully parsed {len(projects)} projects")
 
-    # 初始化预测结果字典和锁
     project_dir = Path(settings.WORKING_DIRECTORY) / "projects" / datetime.now().strftime("%Y%m%d_%H%M%S")
     project_dir.mkdir(parents=True, exist_ok=True)
     project_file = project_dir / "project_results.json"
@@ -580,11 +478,9 @@ def main(
     predictions_lock = Lock()
 
     def process_project(project: Dict[str, str]) -> tuple[str, Dict[str, Any]]:
-        """处理单个项目的函数，用于多线程执行"""
         project_name = project["name"]
         try:
-            # 记录当前处理的项目信息
-            logger.info(f"开始处理项目: {project_name} ")
+            logger.info(f"Start processing project: {project_name} ")
 
             github_url = project["repo_url"]
 
@@ -630,11 +526,10 @@ def main(
             return project_name, project_result
 
         except Exception as e:
-            # 捕获所有异常，记录错误信息并继续处理下一个项目
             error_message = str(e)
             error_traceback = traceback.format_exc()
-            logger.error(f"处理项目 {project_name} 时发生错误: {error_message}")
-            logger.error(f"错误堆栈:\n{error_traceback}")
+            logger.error(f"Error occurred while processing project {project_name}: {error_message}")
+            logger.error(f"Error traceback:\n{error_traceback}")
 
             # 创建错误结果
             project_result = {
@@ -652,35 +547,30 @@ def main(
 
             return project_name, project_result
 
-    # 使用线程池并行处理项目
-    logger.info(f"使用 {max_workers} 个线程并行处理项目")
+    # Use a thread pool to process projects in parallel
+    logger.info(f"Using {max_workers} threads to process projects in parallel")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交所有任务
         future_to_project = {
             executor.submit(process_project, project): project for project in projects
         }
 
-        # project 的json结果，保存到Data的文件夹中。并且每次运行都mkdir一个文件夹，用来将文件夹
-        # 使用tqdm显示进度
-        with tqdm(total=len(projects), desc="处理项目") as pbar:
+        with tqdm(total=len(projects), desc="Processing projects") as pbar:
             for future in as_completed(future_to_project):
                 try:
                     project_name, project_result = future.result()
-                    # 线程安全地更新predictions字典
                     with predictions_lock:
                         predictions[project_name] = project_result
-                        # 保存当前进度到 JSON 文件
                         try:
                             with open(project_file, "w", encoding="utf-8") as f:
                                 json.dump(predictions, f, indent=4, ensure_ascii=False)
                         except Exception as save_error:
-                            logger.error(f"保存结果文件时发生错误: {save_error}")
+                            logger.error(f"Error occurred while saving result file: {save_error}")
                 except Exception as e:
                     logger.error(f"获取任务结果时发生错误: {str(e)}")
                 finally:
                     pbar.update(1)
 
-    logger.info(f"所有项目处理完成，结果已保存到 {project_file}")
+    logger.info(f"All projects have been processed. Results have been saved to {project_file}")
 
 
 if __name__ == "__main__":

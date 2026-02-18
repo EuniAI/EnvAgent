@@ -1,180 +1,177 @@
-## Prometheus Bug Reproduction Agent
+# Prometheus Bug Reproduction Agent
 
-An automated bug reproduction research agent powered by large language models (LLMs) and a code knowledge graph. It clones target repositories, builds a knowledge graph, analyzes and attempts to reproduce issues inside a container, and outputs reproduction commands and results.
+An LLM-driven agent that automatically reproduces software bugs by building a code knowledge graph, generating environment setup scripts, and executing test suites inside isolated Docker containers.
 
-## Requirements
+## Architecture
 
-- Python 3.11+
-- Neo4j 5.x (local or remote)
-- Docker
-- Git
+The system orchestrates three [LangGraph](https://github.com/langchain-ai/langgraph) subgraphs in sequence:
 
-## Installation
+| Stage | Subgraph | Description |
+|-------|----------|-------------|
+| 1 | **Testsuite Extraction** | Parses CI/CD configs, pytest settings, and build files to extract multi-level test commands |
+| 2 | **Environment Implementation** | Queries the code knowledge graph (Neo4j) for context and generates a `prometheus_setup.sh` script |
+| 3 | **Environment Repair** | Iteratively executes, analyzes errors, and patches the setup until the environment is functional |
 
-- Method 1 (recommended): pinned dependencies via requirements.txt
+A **code knowledge graph** (AST + text chunks, stored in Neo4j) provides semantic codebase understanding throughout the pipeline.
+
+## Prerequisites
+
+| Dependency | Version |
+|------------|---------|
+| Python | >= 3.11 |
+| Neo4j | 5.x |
+| Docker | latest |
+| Git | latest |
+
+## Quick Start
+
+### 1. Install dependencies
 
 ```bash
+# Option A: pinned versions (recommended)
 pip install -r requirements.txt
-```
 
-- Method 2: install via pyproject.toml
-
-```bash
-pip install hatchling
+# Option B: via pyproject.toml
 pip install .
 ```
 
-- Create a working directory (for logs and cloned repositories cache):
-
-```bash
-mkdir -p working_dir
-```
-
-## Configuration
-
-Copy the example env file and adjust as needed:
+### 2. Configure environment
 
 ```bash
 cp example.env .env
+mkdir -p working_dir
 ```
 
-Key settings (from example.env):
+Edit `.env` with your settings:
 
-- PROMETHEUS_NEO4J_URI, e.g. `bolt://localhost:7687`
-- PROMETHEUS_NEO4J_USERNAME / PROMETHEUS_NEO4J_PASSWORD
-- PROMETHEUS_WORKING_DIRECTORY, e.g. `working_dir/`
-- PROMETHEUS_OPENAI_FORMAT_API_KEY and other LLM keys (Anthropic/Gemini as needed)
-
-If you need to access private repositories, prepare a GitHub token:
-
-```bash
-export GITHUB_TOKEN="github_pat_xxxx"
+```dotenv
+PROMETHEUS_NEO4J_URI=bolt://localhost:7687
+PROMETHEUS_NEO4J_USERNAME=neo4j
+PROMETHEUS_NEO4J_PASSWORD=password
+PROMETHEUS_WORKING_DIRECTORY=working_dir/
+PROMETHEUS_ADVANCED_MODEL=gpt-4o
+PROMETHEUS_BASE_MODEL=gpt-4o
+PROMETHEUS_OPENAI_FORMAT_API_KEY=sk-xxx
 ```
 
-## Docker prerequisites
+Multi-provider LLM support: OpenAI, Anthropic, Gemini, and Vertex AI. Set the corresponding `PROMETHEUS_*_API_KEY` as needed.
 
-Before running, ensure Docker is available on the host and start the following services.
-
-### Neo4j (required)
-
-Default ports: HTTP 7474, Bolt 7687.
-
-Minimal startup (ports consistent with `example.env`):
+### 3. Start Neo4j
 
 ```bash
-docker run -d \
-  --name neo4j_prometheus \
-  -p 7474:7474 \
-  -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/password \
-  neo4j:5
-```
-
-Recommended (enable APOC and set memory):
-
-```bash
-docker run -d \
-  --name neo4j_prometheus \
-  -p 7474:7474 \
-  -p 7687:7687 \
+docker run -d --name neo4j_prometheus \
+  -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/password \
   -e NEO4J_PLUGINS='["apoc"]' \
-  -e NEO4J_dbms_memory_heap_initial__size=2G \
   -e NEO4J_dbms_memory_heap_max__size=4G \
   -e NEO4J_dbms_memory_pagecache_size=2G \
   neo4j:5
 ```
 
-If you map different host ports (e.g., `7475:7474`, `7688:7687`), update `PROMETHEUS_NEO4J_URI` in `.env` accordingly, e.g., `bolt://localhost:7688`.
-
-### Postgres (optional, for checkpoint storage)
-
-Default port: 5432.
+### 4. Run
 
 ```bash
-docker run -d \
-  --name postgres_prometheus \
-  -p 5432:5432 \
-  -e POSTGRES_USER=app2_user \
-  -e POSTGRES_PASSWORD=app2_password \
-  -e POSTGRES_DB=app2_db \
-  postgres:16
+python3 -m app.main \
+  --dataset_file_path projects/executionAgent.txt \
+  --github_token "$GITHUB_TOKEN" \
+  -w 4 \
+  --docker_image_name envagent-multi-language:v1.1
 ```
 
-You can skip this if you don't use Postgres checkpoints.
+## CLI Options
 
-## Usage
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--dataset_file_path` | `-d` | Path to the project list file (required) | — |
+| `--github_token` | `-g` | GitHub token for private repos | `None` |
+| `--max_workers` | `-w` | Parallel processing threads | `4` |
+| `--dockerfile_template` | `-t` | Custom Dockerfile template path | `None` |
+| `--docker_image_name` | `-i` | Base Docker image name | `None` |
 
-Command-line execution (required argument: `--dataset_file_path`):
+### Dataset file format
+
+One project per line: `<owner/repo> <git_tag> [project_path] [docker_image_name]`
+
+```text
+pallets/flask v3.0.0
+django/django 5.0 django
+```
+
+Lines starting with `#` are ignored.
+
+### Available Benchmarks
+
+| Benchmark | Dataset File |
+|-----------|-------------|
+| EnvBench-Python | `projects/envbench-python.txt` |
+| ExecutionAgent | `projects/executionAgent.txt` |
+| Installamatic | `projects/installamatic_dataset.txt` |
+| Piper-EnvBench | `projects/piper-envbench-test.txt` |
+| Repo2Run | `projects/repo2run.txt` |
+
+Example — run on the ExecutionAgent benchmark with 4 workers:
 
 ```bash
-python -m app.main --dataset_file_path projects/swe-polybench-verified.txt --github_token "$GITHUB_TOKEN"
+python3 -m app.main \
+  --dataset_file_path projects/executionAgent.txt \
+  --github_token "$GITHUB_TOKEN" \
+  -w 4 \
+  --docker_image_name envagent-multi-language:v1.1
 ```
 
-Optional arguments:
+## Project Structure
 
-- --file, -f: output path for predictions, defaults to `projects/predictions_YYYYmmdd_HHMMSS.json`
+```
+app/
+├── main.py                  # CLI entry point & parallel orchestrator
+├── configuration/           # Dynaconf-based settings loader
+├── container/               # Docker container lifecycle management
+├── lang_graph/
+│   ├── subgraphs/           # LangGraph workflow definitions
+│   │   ├── testsuite_subgraph.py
+│   │   ├── env_implement_subgraph.py
+│   │   └── env_repair_subgraph.py
+│   ├── testsuite_nodes/     # Test command extraction nodes
+│   ├── env_nodes/           # Environment setup generation nodes
+│   ├── repair_nodes/        # Iterative repair loop nodes
+│   └── states/              # LangGraph state schemas
+├── services/
+│   ├── knowledge_graph_service.py   # KG build & retrieval
+│   ├── llm_service.py               # Multi-provider LLM abstraction
+│   ├── neo4j_service.py             # Neo4j connection management
+│   └── repository_service.py        # Git clone, cache & versioning
+├── graph/                   # Knowledge graph data structures
+├── parser/                  # Tree-sitter AST parsing
+├── neo4j_manage/            # Neo4j CRUD operations
+└── utils/                   # Logging, helpers
+```
 
-Argument description:
+## Output Artifacts
 
-- --dataset_file_path, -d: path to the project list file (required). Each line should look like `<name> <git_https_url>`. Lines starting with `#` are treated as comments.
-- --github_token, -g: token for accessing private repositories (optional).
+After execution, each project container generates:
 
-## Workflow
+| File | Description |
+|------|-------------|
+| `prometheus_setup.sh` | Auto-generated environment setup script |
+| `prometheus_testsuite_commands.json` | Extracted multi-level test commands |
+| `prometheus_testsuite_states_*.json` | Intermediate testsuite extraction states |
 
-1. Parse the project list file and iterate projects
-2. Clone/update repositories and build the knowledge graph
-3. Start a Docker container (with volume mapping for real-time sync)
-4. Auto-generate testsuite commands and attempt to run them
-5. Auto-generate/execute environment setup commands to fix env/dependency issues
-6. Record and export reproduction results and related information
+Results are aggregated into `<working_dir>/projects/<timestamp>/project_results.json`.
 
-## Project structure
+### Inspecting a container
 
-- `app/main.py`: CLI entry (arguments: `--dataset_file_path`/`--github_token`/`--file`)
-- `app/configuration/`: configuration loading
-- `app/container/`: container management
-- `app/lang_graph/`: language graphs/subgraphs
-- `app/services/`: knowledge graph, repository, LLM, Neo4j services
-- `projects/`: sample project lists and outputs
+```bash
+# Enter the container (ID printed in logs)
+docker exec -it <container_id> /bin/bash
+
+# Run the generated setup script
+bash /app/prometheus_setup.sh
+```
+
+Host files are volume-mapped to `/app` inside the container for real-time sync.
 
 ## Notes
 
-- Ensure Docker is running and you have permission to build images
-- Ensure Neo4j is reachable and `PROMETHEUS_NEO4J_*` are set correctly
-- Building the knowledge graph for large repos may take time and memory
-
-## Example
-
-```bash
-export GITHUB_TOKEN='github_pat_xxxx'
-python3 -m app.main \
-  --dataset_file_path projects/swe-polybench-verified.txt \
-  --github_token "$GITHUB_TOKEN"
-```
-
-## Run output and files inside the container
-
-After the program starts, a general-purpose build container is launched and it prints the command to enter the container, for example:
-
-```bash
-To enter container, run: docker exec -it <container_short_id> /bin/bash
-```
-
-Inside the container (workdir `/app`), two key files are generated:
-
-- `/app/prometheus_setup.sh`: initial environment setup script auto-generated by EnvAgent
-- `/app/prometheus_testsuite_commands.txt`: the extracted/generated testsuite command list (one command per line)
-
-Example: enter the container and run the environment script:
-
-```bash
-# Enter the container (use the command printed in logs)
-docker exec -it <container_short_id> /bin/bash
-
-# Run the environment setup script (idempotent/re-runnable)
-bash /app/prometheus_setup.sh
-
-
-
-Tip: Edits you make on the host are reflected in `/app` inside the container in real time, which makes it easy to iterate on the environment script and testsuite commands.
+- Ensure Docker daemon is running and the current user has Docker permissions.
+- Building knowledge graphs for large repositories is memory-intensive; tune Neo4j heap/pagecache accordingly.
+- Postgres is optional — only needed if LangGraph checkpoint persistence is enabled.

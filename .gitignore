@@ -138,5 +138,5 @@ dmypy.json
 cython_debug/
 
 working_dir/
-projects/
+projects-experiments/
 *nohup.out

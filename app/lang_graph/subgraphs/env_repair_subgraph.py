@@ -31,17 +31,17 @@ logger, _file_handler = get_thread_logger(__name__)
 
 
 def check_router_function(state: Dict) -> str:
-    """检查路由器：决定是继续循环还是结束"""
+    """Check router: decide whether to continue looping or end."""
     check_state = state.get("check_state", {})
     
-    # 从 check_state 中获取值
+    # Get values from check_state
     env_success = check_state.get("env_success", False)
     test_success = check_state.get("test_success", False)
 
-    # 如果环境成功且测试成功，直接结束
+    # If environment and tests both succeed, end
     if env_success and test_success:
         return "end"
-    # 否则继续循环
+    # Otherwise, continue looping
     return "continue"
 
 
@@ -66,32 +66,32 @@ class EnvRepairSubgraph:
         self.container = container
         self.test_mode = test_mode
 
-        # 创建动态路由映射，根据 test_mode 决定 case3 和 case4 的目标
+        # Create a dynamic routing map; use test_mode to decide targets for case3 and case4
         def create_router_mapping():
                 base_mapping = {
                     "case1": "execute_env",
                     "case2": "analyse_env_error_analyse",
                     "success": END,
                 }
-                # case3 根据 test_mode 决定路由目标
+                # case3's routing target depends on test_mode
                 if repair_only_run_env_execute:
-                    base_mapping["case3"] = END # debug 模式下，case3(环境成功，但还没有运行测试)直接成功
+                    base_mapping["case3"] = END  # In debug mode, case3 (environment succeeded but tests have not yet run) is treated as success
                     return base_mapping
 
                 if test_mode == "pyright":
                     base_mapping["case3"] = "execute_pyright"
-                    base_mapping["case4"] = "analyse_pyright_error"  # pyright 模式下，case4（检查失败）应该分析pyright错误
+                    base_mapping["case4"] = "analyse_pyright_error"  # In pyright mode, case4 (check failed) should analyze pyright errors
                 elif test_mode == "pytest":
                     base_mapping["case3"] = "execute_pytest"
-                    base_mapping["case4"] = "analyse_pytest_error" # pytest 模式下，case4（测试失败）应该分析测试错误
-                elif test_mode == "generation":  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
+                    base_mapping["case4"] = "analyse_pytest_error"  # In pytest mode, case4 (tests failed) should analyze test errors
+                elif test_mode == "generation":  # In generation mode, case3 (environment succeeded but tests have not yet run) should execute tests
                     base_mapping["case3"] = "test_select_command"
-                    base_mapping["case4"] = "analyse_test_error" # generation 模式下，case4（测试失败）应该分析测试错误
+                    base_mapping["case4"] = "analyse_test_error"  # In generation mode, case4 (tests failed) should analyze test errors
                 
                 return base_mapping
 
-        # 创建节点
-        env_repair_check_node = EnvRepairCheckNode(test_mode)  # 检查状态
+        # Create nodes
+        env_repair_check_node = EnvRepairCheckNode(test_mode)  # Check status
 
         env_repair_execute_node = EnvRepairExecuteNode(container)
         env_repair_analyse_node = EnvRepairAnalyseNode(advanced_model, container)
@@ -115,7 +115,7 @@ class EnvRepairSubgraph:
         env_repair_test_analyse_node = EnvRepairTestAnalyseNode(advanced_model, container)
         # env_repair_test_update_command_node = EnvRepairTestUpdateCommandNode(advanced_model, container, container.project_path)
 
-        # pyright 模式
+        # pyright mode
         env_repair_pyright_execute_node = EnvRepairPyrightExecuteNode(container)
         env_repair_pyright_analyse_node = EnvRepairPyrightAnalyseNode(advanced_model, container)
 
@@ -124,104 +124,48 @@ class EnvRepairSubgraph:
         env_repair_pytest_analyse_node = EnvRepairPytestAnalyseNode(advanced_model, container)
 
 
-        if repair_only_run_env_execute:
-            # 只调试环境 bashfile，不需要执行测试
+
+        if not repair_only_run_env_execute:  # Debug environment bashfile and tests
             workflow = StateGraph(EnvImplementState)
 
-            # 添加节点
-            workflow.add_node("router", lambda state: state)  # 路由器节点
-            workflow.add_node("execute_env", env_repair_execute_node)  # 执行环境命令
+            # Add nodes
+            workflow.add_node("router", lambda state: state)  # Router node
+            workflow.add_node("execute_env", env_repair_execute_node)  # Execute environment commands
             workflow.add_node(
                 "analyse_env_error_analyse", env_repair_analyse_node
-            )  # 分析环境错误并生成修复命令
-            # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # 读取文件工具
-            workflow.add_node("update_command", env_repair_update_command_node)  # 更新命令
+            )  # Analyze environment errors and generate repair commands
+            # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # File-reading tool
+            workflow.add_node("update_command", env_repair_update_command_node)  # Update commands
             workflow.add_node(
                 "update_command_tool", env_repair_update_command_tool_node
-            )  # 更新命令工具
+            )  # Update command tool
 
-            workflow.add_node("check_status", env_repair_check_node)  # 检查状态
+            workflow.add_node("check_status", env_repair_check_node)  # Check status
 
-            # 设置入口点
-            workflow.set_entry_point("check_status")
-            workflow.add_edge("check_status", "router")
-
-            # 主路由：根据当前状态决定下一步
-            workflow.add_conditional_edges(
-                "router",
-                functools.partial(router_function, test_mode=test_mode),
-                create_router_mapping(),
-            )
-
-            # 执行环境命令后，检查状态
-            workflow.add_edge("execute_env", "check_status")
-            workflow.add_edge("analyse_env_error_analyse", "update_command")
-            # workflow.add_edge("update_command", "update_command_tool")
-            workflow.add_conditional_edges(
-                "update_command",
-                functools.partial(tools_condition, messages_key="env_implement_command_messages"),
-                {
-                    "tools": "update_command_tool",
-                    END: "execute_env",
-                },
-            )
-            workflow.add_edge("update_command_tool", "update_command")
-            # Tool execution returns to update_command for continuation
-        
-            # 检查状态后，决定是否继续循环
-            workflow.add_conditional_edges(
-                "check_status",
-                check_router_function,
-                {
-                    "continue": "router",  # 继续循环
-                    "end": END,  # 结束
-                },
-            )
-            # 编译子图
-            self.subgraph = workflow.compile()
-
-
-        elif not repair_only_run_env_execute:
-            workflow = StateGraph(EnvImplementState)
-
-            # 添加节点
-            workflow.add_node("router", lambda state: state)  # 路由器节点
-            workflow.add_node("execute_env", env_repair_execute_node)  # 执行环境命令
-            workflow.add_node(
-                "analyse_env_error_analyse", env_repair_analyse_node
-            )  # 分析环境错误并生成修复命令
-            # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # 读取文件工具
-            workflow.add_node("update_command", env_repair_update_command_node)  # 更新命令
-            workflow.add_node(
-                "update_command_tool", env_repair_update_command_tool_node
-            )  # 更新命令工具
-
-            workflow.add_node("check_status", env_repair_check_node)  # 检查状态
-
-            # 根据 test_mode 条件性添加节点
+            # Conditionally add nodes based on test_mode
             if test_mode == "pyright":
-                workflow.add_node("execute_pyright", env_repair_pyright_execute_node)  # 执行pyright
-                workflow.add_node("analyse_pyright_error", env_repair_pyright_analyse_node)  # 分析pyright错误
+                workflow.add_node("execute_pyright", env_repair_pyright_execute_node)  # Execute pyright
+                workflow.add_node("analyse_pyright_error", env_repair_pyright_analyse_node)  # Analyze pyright errors
                 # workflow.add_node(
                 #     "update_command", env_repair_update_command_node
-                # )  # 更新测试命令
+                # )  # Update test commands
             elif test_mode == "pytest":
                 workflow.add_node("execute_pytest", env_repair_pytest_execute_node)  # 执行pytest
                 workflow.add_node("analyse_pytest_error", env_repair_pytest_analyse_node)  # 分析pytest错误
-            else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
-                # workflow.add_node("test_command_adjust_web_search_tool", env_repair_test_command_adjust_web_search_tool_node)  # 调整测试命令
-                workflow.add_node("test_command_adjust_node", env_repair_test_command_adjust_node)  # 调整测试命令
-                workflow.add_node("test_select_command", env_repair_test_select_command_node)  # 选择测试命令
-                workflow.add_node("execute_test", env_repair_test_execute_node)  # 执行测试
-                workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # 分析测试错误
+            else:  # In generation mode, in case 3 (environment succeeds but tests have not yet run), tests should be executed
+                # workflow.add_node("test_command_adjust_web_search_tool", env_repair_test_command_adjust_web_search_tool_node)  # Adjust test commands
+                workflow.add_node("test_command_adjust_node", env_repair_test_command_adjust_node)  # Adjust test commands
+                workflow.add_node("test_select_command", env_repair_test_select_command_node)  # Select test commands
+                workflow.add_node("execute_test", env_repair_test_execute_node)  # Execute tests
+                workflow.add_node("analyse_test_error", env_repair_test_analyse_node)  # Analyze test errors
                 # workflow.add_node(
                 #     "update_test_command", env_repair_test_update_command_node
-                # )  # 更新测试命令
+                # )  # Update test commands
 
 
 
-            # 设置入口点
-            # 对test 根据 hierarchy 进行进一步分类、过滤和补充
+            # Set entry point
+            # For tests, further classify, filter, and enrich based on hierarchy
             if test_mode == "generation":
                 workflow.set_entry_point("test_command_adjust_node")
             # workflow.add_conditional_edges(
@@ -239,14 +183,14 @@ class EnvRepairSubgraph:
                 workflow.set_entry_point("check_status")
                 workflow.add_edge("check_status", "router")
 
-            # 主路由：根据当前状态决定下一步
+            # Main router: decide next step according to current state
             workflow.add_conditional_edges(
                 "router",
                 functools.partial(router_function, test_mode=test_mode),
                 create_router_mapping(),
             )
 
-            # 执行环境命令后，检查状态
+            # After executing environment commands, check status
             workflow.add_edge("execute_env", "check_status")
             workflow.add_edge("analyse_env_error_analyse", "update_command")
             # workflow.add_edge("update_command", "update_command_tool")
@@ -261,36 +205,95 @@ class EnvRepairSubgraph:
             workflow.add_edge("update_command_tool", "update_command")
             # Tool execution returns to update_command for continuation
         
-            # 执行测试后，检查状态
+            # After executing tests, check status
             
             if test_mode == "pyright":
-                # pyright 模式：执行环境质量检查后，直接检查状态
+                # In pyright mode: after executing environment quality checks, check status directly
                 workflow.add_edge("execute_pyright", "check_status")
-                # 如果 pyright 检查失败（issues_count > 0），会通过 router 分析错误并生成修复命令
+                # If pyright checks fail (issues_count > 0), use the router to analyze errors and generate repair commands
                 workflow.add_edge("analyse_pyright_error", "update_command")
                 # workflow.add_edge("update_command", "execute_env")
-                # 注意：update_command 到 execute_env 的路由由条件边处理（第186-193行），不需要额外的直接边
+                # Note: routing from update_command to execute_env is handled by conditional edges (lines 186-193), so no extra direct edge is needed
             elif test_mode == "pytest":
                 workflow.add_edge("execute_pytest", "check_status")
                 workflow.add_edge("analyse_pytest_error", "update_command")
-            else:  # generation 模式下，case3（环境成功，但还没有运行测试）应该执行测试
-                # workflow.add_edge("test_command_adjust_node", "test_select_command")  # 调整测试命令后选择测试命令
+            else:  # In generation mode, case3 (environment succeeded but tests have not yet run) should execute tests
+                # workflow.add_edge("test_command_adjust_node", "test_select_command")  # After adjusting test commands, select test commands
                 workflow.add_edge("test_select_command", "execute_test")
                 workflow.add_edge("execute_test", "check_status")
                 workflow.add_edge("analyse_test_error", "update_command")
 
-            # 检查状态后，决定是否继续循环
+            # After checking status, decide whether to continue looping
             workflow.add_conditional_edges(
                 "check_status",
                 check_router_function,
                 {
-                    "continue": "router",  # 继续循环
-                    "end": END,  # 结束
+                    "continue": "router",  # Continue looping
+                    "end": END,  # End
                 },
             )
 
-            # 编译子图
+            # Compile subgraph
             self.subgraph = workflow.compile()
+
+
+
+
+        # if repair_only_run_env_execute:  # Only debug environment bashfile; no need to execute tests
+        #     workflow = StateGraph(EnvImplementState)
+
+        #     # Add nodes
+        #     workflow.add_node("router", lambda state: state)  # Router node
+        #     workflow.add_node("execute_env", env_repair_execute_node)  # Execute environment commands
+        #     workflow.add_node(
+        #         "analyse_env_error_analyse", env_repair_analyse_node
+        #     )  # Analyze environment errors and generate repair commands
+        #     # workflow.add_node("analyse_env_error_analyse_tools", env_repair_analyse_tool_node)  # File-reading tool
+        #     workflow.add_node("update_command", env_repair_update_command_node)  # Update commands
+        #     workflow.add_node(
+        #         "update_command_tool", env_repair_update_command_tool_node
+        #     )  # Update command tool
+
+        #     workflow.add_node("check_status", env_repair_check_node)  # Check status
+
+        #     # Set entry point
+        #     workflow.set_entry_point("check_status")
+        #     workflow.add_edge("check_status", "router")
+
+        #     # Main router: decide next step according to current state
+        #     workflow.add_conditional_edges(
+        #         "router",
+        #         functools.partial(router_function, test_mode=test_mode),
+        #         create_router_mapping(),
+        #     )
+
+        #     # After executing environment commands, check status
+        #     workflow.add_edge("execute_env", "check_status")
+        #     workflow.add_edge("analyse_env_error_analyse", "update_command")
+        #     # workflow.add_edge("update_command", "update_command_tool")
+        #     workflow.add_conditional_edges(
+        #         "update_command",
+        #         functools.partial(tools_condition, messages_key="env_implement_command_messages"),
+        #         {
+        #             "tools": "update_command_tool",
+        #             END: "execute_env",
+        #         },
+        #     )
+        #     workflow.add_edge("update_command_tool", "update_command")
+        #     # Tool execution returns to update_command for continuation
+        
+        #     # After checking status, decide whether to continue looping
+        #     workflow.add_conditional_edges(
+        #         "check_status",
+        #         check_router_function,
+        #         {
+        #             "continue": "router",  # Continue looping
+        #             "end": END,  # End
+        #         },
+        #     )
+        #     # Compile subgraph
+        #     self.subgraph = workflow.compile()
+
 
     def invoke(
         self,
