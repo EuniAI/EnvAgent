@@ -171,6 +171,10 @@ bash /app/prometheus_setup.sh
 
 Host files are volume-mapped to `/app` inside the container for real-time sync.
 
+## License
+
+This project is released under the [MIT License](LICENSE).
+
 ## Notes
 
 - Ensure Docker daemon is running and the current user has Docker permissions.
